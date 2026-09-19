@@ -1,0 +1,19 @@
+{
+  "name": "ado-sync-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "test": "tsc -p ./ && node --test out/test/engine.test.js",
+    "run": "node out/cli.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2"
+  }
+}
+

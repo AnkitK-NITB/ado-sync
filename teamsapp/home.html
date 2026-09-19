@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ADO Sync</title>
+<link rel="stylesheet" href="app.css" />
+<script src="https://res.cdn.office.net/teams-js/2.24.0/js/MicrosoftTeams.min.js"></script>
+<script src="teams-context.js"></script>
+</head>
+<body>
+
+<h1>ADO Sync</h1>
+<div class="lede">You already said your update out loud. The board should know.</div>
+
+<div class="who">
+  <div class="name" id="who">Checking who is signed in…</div>
+  <div class="sub" id="whoSub">&nbsp;</div>
+</div>
+
+<div class="grid">
+  <div class="stat"><div class="n" id="sWatched">—</div><div class="l">Meetings watched</div></div>
+  <div class="stat"><div class="n" id="sReady">—</div><div class="l">Waiting for review</div></div>
+  <div class="stat"><div class="n" id="sApproved">—</div><div class="l">Posted to Azure DevOps</div></div>
+</div>
+
+<div class="cta2">
+  <a class="btn" href="review.html">Review updates</a>
+  <a class="btn btnAlt" href="meetings.html">Manage meetings</a>
+</div>
+
+<script>
+AdoSync.nav();
+
+AdoSync.init(function (user) {
+  var who = document.getElementById("who");
+  var sub = document.getElementById("whoSub");
+  if (user && (user.displayName || user.upn)) {
+    who.textContent = user.displayName || user.upn;
+    sub.textContent = (user.upn || "") + " — updates are built from your turns only.";
+  } else {
+    who.textContent = "Not signed in";
+    sub.textContent = "Opened outside Teams, so there is no user context to read.";
+  }
+});
+
+function set(id, v) { document.getElementById(id).textContent = String(v); }
+
+Promise.all([
+  fetch("/api/meetings", { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+  fetch("cards.json", { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+  fetch("/api/decisions", { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return null; })
+]).then(function (r) {
+  var meetings = (r[0] && r[0].meetings) || [];
+  var cards = r[1] || { sources: [] };
+  var rows = (r[2] && r[2].rows) || [];
+
+  var approvedIds = {};
+  rows.forEach(function (d) {
+    if (d.sourceId && String(d.outcome).indexOf("approved") === 0) approvedIds[d.sourceId] = 1;
+  });
+
+  var sources = cards.sources || [];
+  // Count only approvals whose transcript still exists. The decision log keeps
+  // every approval ever made, including ones whose transcript has since been
+  // removed, and counting those made Home disagree with Review.
+  var posted = sources.filter(function (s) { return approvedIds[s.id]; }).length;
+
+  var ready = sources.filter(function (s) {
+    return !approvedIds[s.id] && (s.cards || []).some(function (c) { return c.status === "proposed"; });
+  }).length;
+
+  set("sWatched", meetings.length);
+  set("sReady", ready);
+  set("sApproved", posted);
+});
+</script>
+</body>
+</html>

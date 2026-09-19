@@ -1,0 +1,15 @@
+node_modules/
+out/
+*.vsix
+*.tsbuildinfo
+
+# never publish: real inputs, generated cards, credentials, runtime logs
+data/*.json
+data/transcripts/*.json
+teamsapp/cards.json
+*.log
+*.pwd
+*.pfx
+*.pem
+*.key
+*.zip

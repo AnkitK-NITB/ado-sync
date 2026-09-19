@@ -1,0 +1,337 @@
+/* Teams theming.
+ *
+ * Teams runs tabs in three themes and can switch while the tab is open, so the
+ * colours live in variables and the theme is an attribute on <html>. Hard-coded
+ * light colours look broken for anyone on dark or high contrast, which is a
+ * large share of people.
+ *
+ * Values follow Fluent / Teams tokens rather than being invented, so the tab
+ * sits inside the client instead of next to it.
+ */
+
+:root,
+:root[data-theme="default"] {
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface-alt: #fafafa;
+  --text: #242424;
+  --text-secondary: #616161;
+  --border: #e0e0e0;
+  --brand: #5b5fc7;
+  --brand-hover: #4f52b2;
+  --brand-text: #ffffff;
+  --ok-bg: #e7f2da;
+  --ok-text: #237b4b;
+  --warn-bg: #fdf3d7;
+  --warn-text: #835b00;
+  --info-bg: #e8ebfa;
+  --info-text: #4f52b2;
+  --muted-bg: #f0f0f0;
+  --muted-text: #616161;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .08);
+  --focus: #5b5fc7;
+}
+
+:root[data-theme="dark"] {
+  --bg: #1f1f1f;
+  --surface: #292929;
+  --surface-alt: #333333;
+  --text: #ffffff;
+  --text-secondary: #adadad;
+  --border: #404040;
+  --brand: #7f85f5;
+  --brand-hover: #9299f7;
+  --brand-text: #ffffff;
+  --ok-bg: #143d22;
+  --ok-text: #92c353;
+  --warn-bg: #4a3505;
+  --warn-text: #fbd84a;
+  --info-bg: #2f2f4a;
+  --info-text: #a6a9f5;
+  --muted-bg: #333333;
+  --muted-text: #adadad;
+  --shadow: none;
+  --focus: #7f85f5;
+}
+
+:root[data-theme="contrast"] {
+  --bg: #000000;
+  --surface: #000000;
+  --surface-alt: #000000;
+  --text: #ffffff;
+  --text-secondary: #ffffff;
+  --border: #ffffff;
+  --brand: #ffff01;
+  --brand-hover: #ffff01;
+  --brand-text: #000000;
+  --ok-bg: #000000;
+  --ok-text: #3ff23f;
+  --warn-bg: #000000;
+  --warn-text: #ffff01;
+  --info-bg: #000000;
+  --info-text: #00ebff;
+  --muted-bg: #000000;
+  --muted-text: #ffffff;
+  --shadow: none;
+  --focus: #ffff01;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 20px 24px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; }
+h2 { font-size: 15px; font-weight: 600; margin: 24px 0 10px; }
+a { color: var(--brand); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.tagline { color: var(--text-secondary); font-size: 13px; margin-bottom: 18px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 18px;
+  box-shadow: var(--shadow);
+}
+
+.who {
+  background: var(--brand);
+  color: var(--brand-text);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.who .name { font-size: 16px; font-weight: 600; }
+.who .sub { font-size: 12px; opacity: .92; margin-top: 2px; }
+
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+.stat .n { font-size: 22px; font-weight: 600; color: var(--brand); }
+.stat.muted .n { color: var(--muted-text); }
+.stat .l {
+  font-size: 11px; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .04em; margin-top: 2px;
+}
+
+.tag {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  letter-spacing: .04em; padding: 1px 7px; border-radius: 9px;
+  margin-right: 6px; vertical-align: 1px;
+}
+.tag.DONE { background: var(--ok-bg); color: var(--ok-text); }
+.tag.NEXT { background: var(--info-bg); color: var(--info-text); }
+.tag.INPROGRESS { background: var(--warn-bg); color: var(--warn-text); }
+.tag.BLOCKED { background: var(--warn-bg); color: var(--warn-text); }
+
+button {
+  font: inherit; font-size: 13px; padding: 6px 14px; margin-right: 8px;
+  border-radius: 4px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer;
+}
+button:hover { background: var(--surface-alt); }
+button.primary {
+  background: var(--brand); border-color: var(--brand);
+  color: var(--brand-text); font-weight: 600;
+}
+button.primary:hover { background: var(--brand-hover); }
+
+select {
+  font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+
+.note {
+  font-size: 12px; color: var(--text-secondary);
+  border-top: 1px solid var(--border); padding-top: 12px; margin-top: 20px;
+}
+code {
+  background: var(--muted-bg); color: var(--text);
+  padding: 1px 5px; border-radius: 3px; font-size: 12px;
+}
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+td.k { color: var(--text-secondary); width: 220px; }
+
+.state {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; margin-right: 8px;
+}
+.state.ok { background: var(--ok-bg); color: var(--ok-text); }
+.state.pending { background: var(--warn-bg); color: var(--warn-text); }
+.state.off { background: var(--muted-bg); color: var(--muted-text); }
+
+/* ---- home: watched meetings, upload, tiles ---- */
+
+.watchList { display: flex; flex-direction: column; gap: 8px; }
+.watch {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface);
+}
+.wTitle { font-weight: 600; font-size: 14px; }
+.wWhen { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+.addRow { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+.addRow input[type="text"], .addRow input[type="date"], .addRow select {
+  padding: 8px 10px; font: inherit; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text);
+}
+.addRow input[type="text"] { flex: 1 1 180px; min-width: 150px; }
+/* A date input has a fixed natural size; letting it grow pushed the button that
+   follows it off the right edge. The button must never be the thing that wraps
+   away, so it keeps its width and the text fields absorb the slack. */
+.addRow input[type="date"] { flex: 0 0 auto; min-width: 150px; }
+.addRow select { flex: 0 1 220px; min-width: 150px; }
+.addRow .btn { flex: 0 0 auto; }
+
+.linkBtn {
+  background: none; border: 0; color: var(--text-secondary); font: inherit; font-size: 12px;
+  cursor: pointer; text-decoration: underline; padding: 4px;
+}
+.linkBtn:hover { color: var(--text); }
+
+.upStatus { margin-top: 10px; font-size: 13px; min-height: 18px; }
+.upStatus.good { color: var(--ok-text); }
+.upStatus.bad { color: var(--warn-text); }
+
+.empty { color: var(--text-secondary); font-size: 13px; padding: 6px 0; }
+
+.tiles {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.tile {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--border); border-left: 4px solid var(--brand);
+  border-radius: 8px; padding: 14px; background: var(--surface);
+  transition: transform .08s ease, box-shadow .08s ease;
+}
+.tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+/* Approved tiles stay exactly where they are -- the order is chronological, and
+   a tile that jumps on approval loses the place you were working through. */
+.tile.done { border-left-color: var(--ok-text); background: var(--ok-bg); }
+
+.tWhen { font-size: 12px; color: var(--text-secondary); }
+.tName { font-size: 15px; font-weight: 600; margin-top: 4px; }
+.tSub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.tFoot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.tCount { font-size: 11px; color: var(--text-secondary); }
+
+.pill { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; }
+.pillOpen { background: var(--info-bg); color: var(--info-text); }
+.pillDone { background: var(--ok-bg); color: var(--ok-text); }
+
+.btn {
+  padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--brand); border-radius: 6px;
+  background: var(--brand); color: var(--brand-text); cursor: pointer;
+}
+.btn:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.backLink { font-size: 13px; color: var(--brand); text-decoration: none; }
+.backLink:hover { text-decoration: underline; }
+.mWhen { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+/* ---- WorkIQ meeting discovery ---- */
+
+.btnAlt { background: var(--surface); color: var(--brand); }
+.btnAlt:hover { background: var(--info-bg); border-color: var(--brand); }
+
+.discovered {
+  margin-top: 12px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface-alt);
+}
+.discHead { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.disc {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 4px; cursor: pointer; border-top: 1px solid var(--border);
+}
+.disc:first-of-type { border-top: 0; }
+.disc input { margin-top: 2px; flex: 0 0 auto; }
+.dMain { display: flex; flex-direction: column; }
+.dTitle { font-size: 13px; font-weight: 600; }
+.dWhen { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.discFoot { font-size: 11px; color: var(--text-secondary); margin-top: 10px; line-height: 1.5; }
+
+.tag {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px;
+  background: var(--ok-bg); color: var(--ok-text);
+}
+
+.wActions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.wActions .btn { padding: 5px 11px; font-size: 12px; }
+
+/* ---- three-tab layout ---- */
+
+.headRow {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.headRow h1 { margin-bottom: 2px; }
+
+.cta2 { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
+.cta2 .btn { text-decoration: none; display: inline-block; }
+
+.steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; }
+.steps li { margin-bottom: 6px; }
+
+/* ---- add-a-card overlay ---- */
+
+.overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, .45);
+}
+.overlay[hidden] { display: none; }
+
+.sheet {
+  width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
+}
+.sheetHead {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.sheetHead h2 { margin: 0; font-size: 16px; }
+.sheetBody { padding: 20px; }
+
+.iconBtn {
+  background: none; border: 0; color: var(--text-secondary);
+  font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.iconBtn:hover { color: var(--text); }
+
+.field { margin-bottom: 4px; }
+.field > label {
+  display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px;
+}
+.hint { font-size: 12px; color: var(--text-secondary); margin-top: 8px; line-height: 1.5; }
+
+/* A labelled divider, so the two routes read as alternatives not steps. */
+.orRule {
+  display: flex; align-items: center; gap: 12px;
+  margin: 22px 0; color: var(--text-secondary); font-size: 12px;
+}
+.orRule::before, .orRule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "0.4.0",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "developer": {
+    "name": "Microsoft",
+    "websiteUrl": "https://dev.azure.com/contoso",
+    "privacyUrl": "https://privacy.microsoft.com/privacystatement",
+    "termsOfUseUrl": "https://www.microsoft.com/legal/terms-of-use"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "ADO Sync",
+    "full": "ADO Sync - standup updates onto work items"
+  },
+  "description": {
+    "short": "Turns what you said in standup into work item updates you approve.",
+    "full": "ADO Sync reads your Teams standup, matches what you said to your Azure DevOps work items, and proposes one comment per work item. Nothing is written until you approve it. Matching follows a published order: an id you spoke aloud, an item you pinned, a match you confirmed before, then items assigned to you. When it cannot tell, it asks instead of guessing."
+  },
+  "accentColor": "#106EBE",
+  "staticTabs": [
+    {
+      "entityId": "adosync.v3.home",
+      "name": "Home",
+      "contentUrl": "https://localhost:53000/home.html",
+      "websiteUrl": "https://localhost:53000/home.html",
+      "scopes": [
+        "personal"
+      ]
+    },
+    {
+      "entityId": "adosync.v3.meetings",
+      "name": "Meetings",
+      "contentUrl": "https://localhost:53000/meetings.html",
+      "websiteUrl": "https://localhost:53000/meetings.html",
+      "scopes": [
+        "personal"
+      ]
+    },
+    {
+      "entityId": "adosync.v3.review",
+      "name": "Review",
+      "contentUrl": "https://localhost:53000/review.html",
+      "websiteUrl": "https://localhost:53000/review.html",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "localhost"
+  ]
+}

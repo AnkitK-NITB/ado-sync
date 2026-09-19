@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ADO Sync — Meeting</title>
+<link rel="stylesheet" href="app.css" />
+<script src="https://res.cdn.office.net/teams-js/2.24.0/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+<script src="teams-context.js"></script>
+<style>
+  .picker { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 8px; }
+  .picker label { font-size: 11px; color: var(--text-secondary);
+                  text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 4px; }
+  .srcNote { font-size: 12px; color: var(--text-secondary); margin: 8px 0 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-left: 4px solid var(--brand); border-radius: 6px;
+          padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
+  .card.ask { border-left-color: var(--warn-text); }
+  .card.none { border-left-color: var(--muted-text); }
+  .card.done { opacity: .72; }
+  .wi { font-weight: 600; font-size: 14px; }
+  .meta { color: var(--text-secondary); font-size: 12px; margin: 2px 0 10px; }
+  ul.updates { margin: 8px 0; padding-left: 18px; }
+  ul.updates li { margin-bottom: 9px; font-size: 13px; }
+  ul.updates li.removed { opacity: .45; text-decoration: line-through; }
+  .topic { font-weight: 600; }
+  .fix { background: var(--warn-bg); color: var(--warn-text);
+         border-radius: 4px; padding: 6px 9px; font-size: 12px; margin-top: 6px; }
+  .fix button { margin-top: 6px; padding: 3px 10px; font-size: 12px; }
+  .why { color: var(--text-secondary); font-size: 12px; font-style: italic; margin-top: 8px; }
+  .choice { font-size: 13px; padding: 6px 0; border-top: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .choice button { margin: 0; padding: 3px 10px; font-size: 12px; }
+  .actions { margin-top: 12px; }
+  .banner { background: var(--warn-bg); color: var(--warn-text); border-radius: 6px;
+            padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+  .status { margin-top: 12px; padding: 10px 12px; border-radius: 4px; font-size: 13px; }
+  .status.info { background: var(--info-bg); color: var(--info-text); }
+  .status.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .status.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .status a { color: inherit; font-weight: 600; }
+  button[disabled] { opacity: .5; cursor: default; }
+  textarea { font: inherit; font-size: 13px; width: 100%; min-height: 62px; padding: 7px 9px;
+             border-radius: 4px; border: 1px solid var(--border);
+             background: var(--surface-alt); color: var(--text); resize: vertical; }
+  .editRow { margin-bottom: 10px; }
+  .editRow .lbl { font-size: 11px; color: var(--text-secondary); margin-bottom: 3px;
+                  display: flex; justify-content: space-between; align-items: center; }
+  .editRow .lbl button { margin: 0; padding: 2px 8px; font-size: 11px; }
+  .rawBox { margin-top: 10px; }
+  .rawBox textarea { min-height: 180px; font-family: Consolas, monospace; font-size: 12px; }
+  .hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+  .searchRow { display: flex; gap: 8px; margin: 10px 0 6px; }
+  .searchRow input { flex: 1; font: inherit; font-size: 13px; padding: 6px 9px;
+                     border-radius: 4px; border: 1px solid var(--border);
+                     background: var(--surface-alt); color: var(--text); }
+  .pickList { max-height: 260px; overflow: auto; }
+</style>
+</head>
+<body>
+
+<h1>ADO Sync</h1>
+<div class="tagline" id="tagline">Loading…</div>
+
+<div id="identityBanner"></div>
+
+<div class="picker" id="meetingHead"></div>
+<div class="srcNote" id="srcNote"></div>
+
+<div id="cards"></div>
+<div class="note" id="foot"></div>
+
+<script>
+var DATA = null;
+var USER = null;
+var STATE = {};   // per-card working state, keyed by source id + index
+
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = text;
+  return n;
+}
+function api(path, opts) {
+  return fetch(path, opts).then(function (r) {
+    return r.json().then(function (j) { return { status: r.status, j: j }; });
+  });
+}
+function workItemUrl(id) {
+  return "https://dev.azure.com/" + DATA.org + "/" + DATA.project + "/_workitems/edit/" + id;
+}
+
+/* Identity is compared on UPN against the enrolled Azure DevOps identity, never
+   on display name. Display names are not unique, not stable, and Teams may
+   return the UPN in that field anyway -- matching on them would be exactly the
+   inference the engine refuses to make. */
+function sameIdentity(user, enrolled) {
+  var target = (enrolled.adoIdentity || "").trim().toLowerCase();
+  if (!target) return false;
+  return [user.upn, user.displayName].filter(Boolean)
+    .map(function (s) { return String(s).trim().toLowerCase(); })
+    .indexOf(target) !== -1;
+}
+function identityState() {
+  var enrolled = DATA.enrolledSpeaker;
+  if (!USER) {
+    return { ok: true, text: "Opened outside Teams, so there is no signed-in user. Showing cards for " +
+      enrolled.displayName + "." };
+  }
+  if (sameIdentity(USER, enrolled)) return { ok: true, text: null };
+  return { ok: false, text: "Signed in as " + (USER.upn || USER.displayName || "an unknown user") +
+    ", but the enrolled speaker for these cards is " + enrolled.displayName +
+    " (" + enrolled.adoIdentity + "). Cards are private to the person who spoke, so nothing is shown." };
+}
+
+/* The meeting is fixed by the tile you clicked, so there is nothing to choose
+   here. Falling back to the newest transcript keeps a bookmarked or stale link
+   working instead of rendering an empty page. */
+function currentSource() {
+  var want = new URLSearchParams(location.search).get("id");
+  return DATA.sources.filter(function (s) { return s.id === want; })[0] || DATA.sources[0];
+}
+
+/* Working copy per card: the original stays untouched so Reset is honest. */
+function stateFor(source, index) {
+  var key = source.id + "#" + index;
+  if (!STATE[key]) {
+    var c = source.cards[index];
+    STATE[key] = {
+      key: key,
+      card: JSON.parse(JSON.stringify(c)),
+      original: JSON.parse(JSON.stringify(c)),
+      removed: {},
+      editing: false,
+      rawEditing: false,
+      picking: false,
+      finished: null,
+      provenance: { editedUpdates: [], removedUpdates: [], correctionsAccepted: 0, rawEdited: false },
+      liveRev: null
+    };
+  }
+  return STATE[key];
+}
+
+function liveUpdates(st) {
+  return st.card.updates.filter(function (_, i) { return !st.removed[i]; });
+}
+
+function markEdited(st, i) {
+  if (st.provenance.editedUpdates.indexOf(i) === -1) st.provenance.editedUpdates.push(i);
+}
+
+/* The comment is regenerated by the engine, so the tab and the CLI cannot drift
+   apart on what a set of updates means. */
+function rebuild(st, then) {
+  var kept = liveUpdates(st);
+  if (kept.length === 0) { st.card.comment = null; return then && then(); }
+  api("/api/rebuild", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates: kept, workItem: st.card.workItem, meetingDate: currentSource().date })
+  }).then(function (r) {
+    if (r.j.ok && r.j.proposed) {
+      st.card.comment = r.j.proposed.commentMarkdown;
+      st.card.stateChange = r.j.proposed.stateChange;
+      st.card.nextAction = r.j.proposed.nextAction;
+    }
+    then && then();
+  }).catch(function () { then && then(); });
+}
+
+function showStatus(cardEl, kind, text, link) {
+  var old = cardEl.querySelector(".status");
+  if (old) old.remove();
+  var box = el("div", "status " + kind);
+  box.appendChild(el("div", null, text));
+  if (link) {
+    var a = el("a", null, link.text);
+    a.href = link.href; a.target = "_blank"; a.rel = "noopener";
+    var p = el("div"); p.appendChild(a); box.appendChild(p);
+  }
+  cardEl.appendChild(box);
+  return box;
+}
+
+function recordDecision(st, outcome) {
+  return api("/api/decision", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      card: st.card, provenance: st.provenance, outcome: outcome,
+      meeting: currentSource().meeting + " " + currentSource().date.slice(0, 10),
+      sourceId: currentSource().id,
+      speaker: DATA.enrolledSpeaker.displayName
+    })
+  }).catch(function () { /* telemetry must never block the person */ });
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+function doApprove(st, cardEl) {
+  var c = st.card;
+  if (!c.workItem || !c.comment) return showStatus(cardEl, "warn", "There is nothing to post for this card.");
+  st.notice = null;
+  var buttons = cardEl.querySelectorAll(".actions button");
+  for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+
+  var rev = st.liveRev != null ? st.liveRev : c.workItem.rev;
+  showStatus(cardEl, "info", "Posting to Azure DevOps as you, asserting /rev == " + rev + "…");
+
+  api("/api/approve", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      org: DATA.org, project: DATA.project,
+      workItem: { id: c.workItem.id, rev: rev, state: c.workItem.state },
+      comment: c.comment, stateChange: c.stateChange || null
+    })
+  }).then(function (r) {
+    var j = r.j;
+    if (j.ok) {
+      st.liveRev = j.newRev;
+      st.finished = "approved";
+      var edited = st.provenance.rawEdited || st.provenance.editedUpdates.length > 0 ||
+                   st.provenance.removedUpdates.length > 0;
+      recordDecision(st, edited ? "approved-after-edit" : "approved-unchanged");
+      render();
+      return;
+    }
+    if (j.staleRev) {
+      // The refresh below re-renders, which would wipe an inline status box --
+      // so the notice is held on the card state and survives the re-render.
+      // This is the most important message the product produces; it must not
+      // flash past before it can be read.
+      st.notice = { kind: "warn", text:
+        "Rejected, and that is the guard working. " + c.workItem.id +
+        " changed after this card was built, so the revision assertion failed and nothing was " +
+        "written. " + j.error + " The current revision has been reloaded — approve again to " +
+        "post against it." };
+      refreshRev(st, function () { render(); });
+      return;
+    }
+    showStatus(cardEl, "warn", "Not posted. " + (j.error || ("HTTP " + r.status)) + (j.hint ? " — " + j.hint : ""));
+    for (var k = 0; k < buttons.length; k++) buttons[k].disabled = false;
+  }).catch(function (e) {
+    showStatus(cardEl, "warn", "Not posted. " + e.message);
+    for (var i2 = 0; i2 < buttons.length; i2++) buttons[i2].disabled = false;
+  });
+}
+
+function doSkip(st) {
+  st.finished = "skipped";
+  recordDecision(st, "skipped");
+  render();
+}
+
+function refreshRev(st, then) {
+  if (!st.card.workItem) return then && then();
+  api("/api/workitem?org=" + encodeURIComponent(DATA.org) + "&project=" + encodeURIComponent(DATA.project) +
+      "&id=" + st.card.workItem.id)
+    .then(function (r) {
+      if (r.j.ok) {
+        st.liveRev = r.j.rev;
+        st.card.workItem.state = r.j.state;
+      }
+      then && then();
+    }).catch(function () { then && then(); });
+}
+
+function retarget(st, item) {
+  st.card.workItem = { id: item.id, type: item.type, title: item.title, state: item.state, rev: item.rev };
+  st.liveRev = item.rev;
+  st.card.status = "proposed";
+  st.card.choices = null;
+  st.card.ambiguityReason = null;
+  st.card.skipReason = null;
+  st.card.controls = ["Approve", "Edit", "Choose another item", "Skip"];
+  st.picking = false;
+  recordDecision(st, "reassigned");
+  rebuild(st, render);
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+function renderUpdates(st, cardEl) {
+  var ul = el("ul", "updates");
+  st.card.updates.forEach(function (u, i) {
+    var li = el("li", st.removed[i] ? "removed" : null);
+    if (u.progress) li.appendChild(el("span", "tag " + u.progress.replace(/\s/g, ""), u.progress));
+    if (u.topic) li.appendChild(el("span", "topic", u.topic + " — "));
+    li.appendChild(document.createTextNode(u.text));
+
+    (u.corrections || []).forEach(function (fix) {
+      var box = el("div", "fix");
+      box.appendChild(document.createTextNode('Heard "' + fix.heard + '" — matched as ' + fix.canonical + '.'));
+      box.appendChild(document.createElement("br"));
+      var accept = el("button", null, "Accept into the text");
+      accept.onclick = function () {
+        // Only this line changes. Recorded as agreement with a repair the
+        // engine proposed, not as the engine being corrected.
+        u.text = u.text.split(fix.heard).join(fix.canonical);
+        u.corrections = null;
+        st.provenance.correctionsAccepted++;
+        markEdited(st, i);
+        rebuild(st, render);
+      };
+      box.appendChild(accept);
+      li.appendChild(box);
+    });
+    ul.appendChild(li);
+  });
+  cardEl.appendChild(ul);
+}
+
+function renderEditor(st, cardEl) {
+  var box = el("div");
+  box.appendChild(el("div", "hint",
+    "Edit any line, or drop one. The comment is rebuilt from what is left."));
+
+  st.card.updates.forEach(function (u, i) {
+    var row = el("div", "editRow");
+    var lbl = el("div", "lbl");
+    lbl.appendChild(el("span", null, (u.topic || "Update " + (i + 1)) + (u.progress ? "  ·  " + u.progress : "")));
+    var rm = el("button", null, st.removed[i] ? "Restore" : "Remove");
+    rm.onclick = function () {
+      if (st.removed[i]) {
+        delete st.removed[i];
+        st.provenance.removedUpdates = st.provenance.removedUpdates.filter(function (x) { return x !== i; });
+      } else {
+        st.removed[i] = true;
+        if (st.provenance.removedUpdates.indexOf(i) === -1) st.provenance.removedUpdates.push(i);
+      }
+      rebuild(st, render);
+    };
+    lbl.appendChild(rm);
+    row.appendChild(lbl);
+
+    var ta = el("textarea");
+    ta.value = u.text;
+    ta.disabled = !!st.removed[i];
+    ta.onchange = function () {
+      if (ta.value !== u.text) { u.text = ta.value; markEdited(st, i); rebuild(st, render); }
+    };
+    row.appendChild(ta);
+    box.appendChild(row);
+  });
+
+  var raw = el("button", null, "Edit the whole comment instead");
+  raw.onclick = function () { st.rawEditing = true; st.editing = false; render(); };
+  box.appendChild(raw);
+
+  var done = el("button", "primary", "Done editing");
+  done.onclick = function () { st.editing = false; render(); };
+  box.appendChild(done);
+
+  cardEl.appendChild(box);
+}
+
+function renderRawEditor(st, cardEl) {
+  var box = el("div", "rawBox");
+  box.appendChild(el("div", "hint",
+    "Rewriting the body by hand replaces it entirely. Per-line edits are no longer " +
+    "possible afterwards, because regenerating the comment would discard what you wrote."));
+  var ta = el("textarea");
+  ta.value = st.card.comment || "";
+  box.appendChild(ta);
+
+  var save = el("button", "primary", "Save comment");
+  save.onclick = function () {
+    st.card.comment = ta.value;
+    st.provenance.rawEdited = true;
+    st.rawEditing = false;
+    render();
+  };
+  box.appendChild(save);
+
+  var cancel = el("button", null, "Cancel");
+  cancel.onclick = function () { st.rawEditing = false; render(); };
+  box.appendChild(cancel);
+
+  cardEl.appendChild(box);
+}
+
+function renderPicker(st, cardEl) {
+  var box = el("div");
+  var row = el("div", "searchRow");
+  var input = el("input");
+  input.placeholder = "Filter your work items by title or id…";
+  row.appendChild(input);
+  var close = el("button", null, "Cancel");
+  close.onclick = function () { st.picking = false; render(); };
+  row.appendChild(close);
+  box.appendChild(row);
+
+  var list = el("div", "pickList");
+  box.appendChild(list);
+  cardEl.appendChild(box);
+
+  function paint(items) {
+    list.innerHTML = "";
+    var q = input.value.trim().toLowerCase();
+    var shown = items.filter(function (w) {
+      return !q || String(w.id).indexOf(q) !== -1 || w.title.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 25);
+    if (shown.length === 0) { list.appendChild(el("div", "hint", "Nothing matches.")); return; }
+    shown.forEach(function (w) {
+      var r = el("div", "choice");
+      r.appendChild(el("span", null, w.type + " " + w.id + " — " + w.title + " (" + w.state + ")"));
+      var b = el("button", null, "Use this");
+      b.onclick = function () { retarget(st, w); };
+      r.appendChild(b);
+      list.appendChild(r);
+    });
+  }
+
+  list.appendChild(el("div", "hint", "Loading your work items…"));
+  api("/api/workitems?org=" + encodeURIComponent(DATA.org) + "&project=" + encodeURIComponent(DATA.project) +
+      "&identity=" + encodeURIComponent(DATA.enrolledSpeaker.adoIdentity))
+    .then(function (r) {
+      var items = (r.j && r.j.items) || [];
+      input.oninput = function () { paint(items); };
+      paint(items);
+    }).catch(function () {
+      list.innerHTML = "";
+      list.appendChild(el("div", "hint", "Could not load work items."));
+    });
+}
+
+function renderCard(st, source) {
+  var c = st.card;
+  var cls = st.finished ? "card done"
+          : c.status === "proposed" ? "card"
+          : c.status === "ambiguous" ? "card ask" : "card none";
+  var cardEl = el("div", cls);
+
+  if (c.workItem) {
+    var wi = el("div", "wi");
+    var a = el("a", null, c.workItem.type + " " + c.workItem.id + " — " + c.workItem.title);
+    a.href = workItemUrl(c.workItem.id); a.target = "_blank"; a.rel = "noopener";
+    wi.appendChild(a);
+    cardEl.appendChild(wi);
+    var rev = st.liveRev != null ? st.liveRev : c.workItem.rev;
+    cardEl.appendChild(el("div", "meta",
+      "state " + c.workItem.state + " · rev " + rev +
+      (st.liveRev != null && st.liveRev !== c.workItem.rev ? " (live)" : "") +
+      " · " + liveUpdates(st).length + " update" + (liveUpdates(st).length === 1 ? "" : "s") +
+      (c.matchTier ? " · matched at " + c.matchTier : "")));
+  } else {
+    cardEl.appendChild(el("div", "wi", "No work item matched"));
+    cardEl.appendChild(el("div", "meta", c.status));
+  }
+
+  if (st.rawEditing) {
+    renderRawEditor(st, cardEl);
+  } else if (st.editing) {
+    renderEditor(st, cardEl);
+  } else {
+    renderUpdates(st, cardEl);
+    if (c.corroboration) cardEl.appendChild(el("div", "why", c.corroboration));
+    if (c.ambiguityReason) cardEl.appendChild(el("div", "why", c.ambiguityReason));
+    if (c.skipReason) cardEl.appendChild(el("div", "why", c.skipReason));
+  }
+
+  if (st.picking) {
+    renderPicker(st, cardEl);
+  } else if (!st.editing && !st.rawEditing) {
+    (c.choices || []).forEach(function (w) {
+      var r = el("div", "choice");
+      r.appendChild(el("span", null, w.type + " " + w.id + " — " + w.title + " (" + w.state + ")"));
+      var b = el("button", null, "Pick this");
+      b.onclick = function () {
+        retarget(st, { id: w.id, type: w.type, title: w.title, state: w.state, rev: w.rev || 0 });
+        refreshRev(st, render);
+      };
+      r.appendChild(b);
+      list_push(r, cardEl);
+    });
+  }
+
+  if (!st.editing && !st.rawEditing && c.nextAction) {
+    cardEl.appendChild(el("div", "meta", "Next action: " + c.nextAction));
+  }
+
+  // A notice raised by a previous action, held across re-renders.
+  if (st.notice) {
+    showStatus(cardEl, st.notice.kind, st.notice.text);
+  }
+
+  if (st.finished === "approved") {
+    showStatus(cardEl, "ok", "ADO updated \u2014 " + c.workItem.id + " is now at rev " + st.liveRev + ".",
+      { text: "Open " + c.workItem.id + " in Azure DevOps", href: workItemUrl(c.workItem.id) });
+    var again = el("button", null, "Post another update");
+    again.onclick = function () { st.finished = null; render(); };
+    var wrap = el("div", "actions"); wrap.appendChild(again); cardEl.appendChild(wrap);
+    return cardEl;
+  }  if (st.finished === "skipped") {
+    showStatus(cardEl, "info", "Skipped. Nothing was written, and the decision was recorded.");
+    var undo = el("button", null, "Undo skip");
+    undo.onclick = function () { st.finished = null; render(); };
+    var w2 = el("div", "actions"); w2.appendChild(undo); cardEl.appendChild(w2);
+    return cardEl;
+  }
+
+  if (!st.editing && !st.rawEditing) {
+    var actions = el("div", "actions");
+    (c.controls || []).forEach(function (label, i) {
+      var isPicker = label === "Choose another item" || label === "Pick one" || label === "Choose an item";
+      var shown = isPicker && st.picking ? "Close the list" : label;
+      var b = el("button", i === 0 && c.status === "proposed" ? "primary" : null, shown);
+      b.onclick = function () {
+        if (label === "Approve") return doApprove(st, cardEl);
+        if (label === "Skip") return doSkip(st);
+        if (label === "Edit") { st.editing = true; st.picking = false; return render(); }
+        if (label === "Choose another item" || label === "Pick one" || label === "Choose an item") {
+          // Toggle, so the same button both opens and closes the picker.
+          st.picking = !st.picking;
+          return render();
+        }
+        if (label === "Comment anyway") { st.card.status = "proposed"; return render(); }
+        showStatus(cardEl, "info", '"' + label + '" has no action in this build.');
+      };
+      actions.appendChild(b);
+    });
+    if (st.provenance.editedUpdates.length || st.provenance.removedUpdates.length || st.provenance.rawEdited) {
+      var reset = el("button", null, "Reset edits");
+      reset.onclick = function () {
+        st.card = JSON.parse(JSON.stringify(st.original));
+        st.removed = {};
+        st.provenance = { editedUpdates: [], removedUpdates: [], correctionsAccepted: 0, rawEdited: false };
+        render();
+      };
+      actions.appendChild(reset);
+    }
+    cardEl.appendChild(actions);
+  }
+
+  return cardEl;
+}
+
+function list_push(node, parent) { parent.appendChild(node); }
+
+function render() {
+  var source = currentSource();
+
+  document.getElementById("tagline").textContent =
+    source.meeting + " — " + new Date(source.date).toLocaleDateString(undefined,
+      { day: "numeric", month: "long", year: "numeric" });
+
+  var head = document.getElementById("meetingHead");
+  head.innerHTML = "";
+  var when = el("div", "mWhen", new Date(source.date).toLocaleString(undefined,
+    { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }));
+  var back = el("a", "backLink", "\u2190 All meetings");
+  back.href = "index.html";
+  head.appendChild(back);
+  head.appendChild(when);
+
+  var note = document.getElementById("srcNote");
+  note.innerHTML = "";
+  note.appendChild(document.createTextNode(source.blurb + " "));
+  note.appendChild(el("strong", null, source.expect));
+
+  var host = document.getElementById("cards");
+  host.innerHTML = "";
+
+  var idb = document.getElementById("identityBanner");
+  idb.innerHTML = "";
+  var s = identityState();
+  if (s.text) idb.appendChild(el("div", "banner", s.text));
+  if (!s.ok) return;
+
+  source.cards.forEach(function (_, i) {
+    var st = stateFor(source, i);
+    host.appendChild(renderCard(st, source));
+    if (st.liveRev === null && st.card.workItem) {
+      refreshRev(st, function () {
+        var meta = host.children[i] && host.children[i].querySelector(".meta");
+        if (meta && st.liveRev != null) {
+          meta.textContent = meta.textContent.replace(/rev \d+( \(live\))?/, "rev " + st.liveRev + " (live)");
+        }
+      });
+    }
+  });
+
+  document.getElementById("foot").textContent =
+    "Cards produced by the engine against live " + DATA.org + "/" + DATA.project +
+    " work items. Approve writes for real, under your own identity, asserting the revision shown. " +
+    "Generated " + new Date(DATA.generatedAt).toLocaleString() + ".";
+}
+
+fetch("cards.json", { cache: "no-store" })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    DATA = data;
+    AdoSync.init(function (user) { USER = user; render(); });
+  })
+  .catch(function (e) {
+    document.getElementById("tagline").textContent = "Could not load cards.json — " + e.message;
+  });
+</script>
+</body>
+</html>

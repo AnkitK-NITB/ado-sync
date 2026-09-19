@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ADO Sync — Meetings</title>
+<link rel="stylesheet" href="app.css" />
+<script src="https://res.cdn.office.net/teams-js/2.24.0/js/MicrosoftTeams.min.js"></script>
+<script src="teams-context.js"></script>
+</head>
+<body>
+
+<h1>Meetings</h1>
+<div class="lede">The meetings ADO Sync watches for your updates.</div>
+
+<div class="panel">
+  <div id="watchList" class="watchList">Loading…</div>
+  <div class="addRow">
+    <button class="btn" id="syncBtn">Sync from WorkIQ</button>
+  </div>
+  <div id="upStatus" class="upStatus"></div>
+</div>
+
+<div id="discovered" class="discovered" hidden></div>
+
+<script>
+AdoSync.nav();
+AdoSync.init(function () {});
+
+var ME = "Ankit Kushwaha";
+var meetings = [];
+var discovered = null;
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+function note(msg, bad) {
+  var el = document.getElementById("upStatus");
+  el.textContent = msg || "";
+  el.className = "upStatus" + (bad ? " bad" : " good");
+}
+
+// ---- watch list ----
+
+function renderMeetings() {
+  var host = document.getElementById("watchList");
+  if (!meetings.length) {
+    host.innerHTML = '<div class="empty">No meetings watched yet. Press <strong>Sync from WorkIQ</strong> to see yours.</div>';
+    return;
+  }
+  host.innerHTML = meetings.map(function (m) {
+    return '<div class="watch"><div><div class="wTitle">' + esc(m.title) + '</div>' +
+           '<div class="wWhen">' + esc(m.schedule || "no schedule recorded") + '</div></div>' +
+           '<div class="wActions">' +
+           '<button class="btn btnAlt" data-pull="' + esc(m.title) + '">Pull update</button>' +
+           '<button class="linkBtn" data-remove="' + esc(m.title) + '">Stop watching</button>' +
+           '</div></div>';
+  }).join("");
+  host.querySelectorAll("[data-remove]").forEach(function (b) {
+    b.onclick = function () { removeMeeting(b.getAttribute("data-remove")); };
+  });
+  host.querySelectorAll("[data-pull]").forEach(function (b) {
+    b.onclick = function () { pullUpdate(b, b.getAttribute("data-pull")); };
+  });
+}
+
+function loadMeetings() {
+  return fetch("/api/meetings", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { meetings = (d && d.meetings) || []; renderMeetings(); })
+    .catch(function () {
+      document.getElementById("watchList").innerHTML =
+        '<div class="empty">Cannot reach the local service.</div>';
+    });
+}
+
+function removeMeeting(title) {
+  fetch("/api/meetings/remove", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title })
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      meetings = d.meetings || []; renderMeetings();
+      // Keep the calendar list in step, so the tick clears with the row.
+      if (discovered) {
+        discovered.meetings.forEach(function (m) {
+          if (m.title.toLowerCase() === title.toLowerCase()) m.watched = false;
+        });
+        renderDiscovered();
+      }
+    });
+}
+
+// ---- pull an update straight from WorkIQ ----
+
+function pullUpdate(btn, title) {
+  var original = btn.textContent;
+  btn.textContent = "Asking WorkIQ…";
+  btn.disabled = true;
+  note("Asking WorkIQ what you said in " + title + "…");
+
+  fetch("/api/transcript/pull", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title, speaker: ME })
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      btn.disabled = false; btn.textContent = original;
+      if (!d.ok) return note(d.error || "Could not pull that update.", true);
+      if (!d.spoke) return note(d.message, true);
+      note("Pulled " + d.topics + " topic(s) from " + d.date + ". Open Review to see the card.");
+    })
+    .catch(function (e) {
+      btn.disabled = false; btn.textContent = original;
+      note("Pull failed: " + e.message, true);
+    });
+}
+
+// ---- WorkIQ discovery ----
+
+function renderDiscovered() {
+  var host = document.getElementById("discovered");
+  if (!discovered) { host.hidden = true; return; }
+  host.hidden = false;
+
+  if (!discovered.meetings.length) {
+    host.innerHTML = '<div class="empty">WorkIQ returned no meetings.</div>';
+    return;
+  }
+
+  var rows = discovered.meetings.map(function (m) {
+    return '<label class="disc">' +
+      '<input type="checkbox" data-title="' + esc(m.title) + '" data-when="' + esc(m.schedule) + '"' +
+      (m.watched ? " checked" : "") + " />" +
+      '<span class="dMain"><span class="dTitle">' + esc(m.title) +
+      (m.transcribed ? '<span class="tag">transcribed</span>' : "") + "</span>" +
+      '<span class="dWhen">' + esc(m.schedule) +
+      (m.organizer ? " · " + esc(m.organizer) : "") + "</span></span></label>";
+  }).join("");
+
+  host.innerHTML =
+    '<div class="discHead">Your calendar — tick what ADO Sync should watch</div>' + rows +
+    '<div class="discFoot">' +
+    (discovered.stale ? "Showing the last good result; the live call failed."
+                      : "Only meetings marked <strong>transcribed</strong> can produce a card on their own.") +
+    "</div>";
+
+  host.querySelectorAll("input[type=checkbox]").forEach(function (cb) {
+    cb.onchange = function () {
+      fetch("/api/meetings/toggle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: cb.getAttribute("data-title"),
+          schedule: cb.getAttribute("data-when"),
+          watched: cb.checked
+        })
+      }).then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { cb.checked = !cb.checked; return note(d.error || "Could not update.", true); }
+          meetings = d.meetings; renderMeetings();
+          discovered.meetings.forEach(function (m) {
+            if (m.title === cb.getAttribute("data-title")) m.watched = cb.checked;
+          });
+        })
+        .catch(function () { cb.checked = !cb.checked; });
+    };
+  });
+}
+
+document.getElementById("syncBtn").onclick = function () {
+  var btn = document.getElementById("syncBtn");
+  if (discovered) { discovered = null; renderDiscovered(); btn.textContent = "Sync from WorkIQ"; return; }
+  btn.textContent = "Asking WorkIQ…";
+  btn.disabled = true;
+  note("");
+  fetch("/api/meetings/discover?refresh=1", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      btn.disabled = false;
+      if (!d.ok && !(d.meetings || []).length) {
+        note(d.error || "Sync failed.", true);
+        btn.textContent = "Sync from WorkIQ";
+        return;
+      }
+      if (!d.ok) note(d.error, true);
+      discovered = d; renderDiscovered();
+      // Schedules are refreshed from WorkIQ during a sync, so redraw the list.
+      loadMeetings();
+      btn.textContent = "Hide calendar";
+    })
+    .catch(function (e) {
+      btn.disabled = false;
+      note("Sync failed: " + e.message, true);
+      btn.textContent = "Sync from WorkIQ";
+    });
+};
+
+loadMeetings();
+</script>
+</body>
+</html>

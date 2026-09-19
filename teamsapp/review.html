@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ADO Sync — Review</title>
+<link rel="stylesheet" href="app.css" />
+<script src="https://res.cdn.office.net/teams-js/2.24.0/js/MicrosoftTeams.min.js"></script>
+<script src="teams-context.js"></script>
+</head>
+<body>
+
+<div class="headRow">
+  <div>
+    <h1>Review</h1>
+    <div class="lede">Updates waiting for you, newest first.</div>
+  </div>
+  <button class="btn" id="addBtn">Add a card</button>
+</div>
+
+<div id="tiles" class="tiles">Loading…</div>
+<div class="note" id="tilesNote"></div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheetHead">
+      <h2 id="sheetTitle">Add a card</h2>
+      <button class="iconBtn" id="closeSheet" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="sheetBody">
+      <div class="field">
+        <label for="pullMeeting">Pull it from WorkIQ</label>
+        <div class="addRow">
+          <select id="pullMeeting"></select>
+          <button class="btn" id="pullBtn">Pull update</button>
+        </div>
+        <div class="hint">Asks what you said in the most recent occurrence. Takes about half a minute.</div>
+      </div>
+
+      <div class="orRule"><span>or</span></div>
+
+      <div class="field">
+        <label for="forMeeting">Use a transcript file</label>
+        <div class="addRow">
+          <select id="forMeeting"></select>
+          <input id="forDate" type="date" />
+          <button class="btn btnAlt" id="pickFile">Choose .vtt or .md…</button>
+          <input id="file" type="file" accept=".vtt,.md,.markdown,.json,.txt" hidden />
+        </div>
+        <div class="hint">For a meeting that was not transcribed, or a file you already have.</div>
+      </div>
+
+      <div id="sheetStatus" class="upStatus"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+AdoSync.nav();
+AdoSync.init(function () {});
+
+var ME = "Ankit Kushwaha";
+var meetings = [];
+var approvedSources = {};
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+function when(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) +
+         " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+function note(msg, bad) {
+  var el = document.getElementById("sheetStatus");
+  el.textContent = msg || "";
+  el.className = "upStatus" + (bad ? " bad" : " good");
+}
+
+// ---- overlay ----
+
+var overlay = document.getElementById("overlay");
+function openSheet() {
+  overlay.hidden = false;
+  note("");
+  document.getElementById("closeSheet").focus();
+}
+function closeSheet() { overlay.hidden = true; }
+
+document.getElementById("addBtn").onclick = openSheet;
+document.getElementById("closeSheet").onclick = closeSheet;
+// Clicking the backdrop closes; clicking inside the sheet must not.
+overlay.onclick = function (e) { if (e.target === overlay) closeSheet(); };
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape" && !overlay.hidden) closeSheet();
+});
+
+// ---- meetings for the pickers ----
+
+function loadMeetings() {
+  return fetch("/api/meetings", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      meetings = (d && d.meetings) || [];
+      var opts = meetings.length
+        ? meetings.map(function (m) { return '<option>' + esc(m.title) + "</option>"; }).join("")
+        : '<option value="">No meetings watched yet</option>';
+      document.getElementById("pullMeeting").innerHTML = opts;
+      document.getElementById("forMeeting").innerHTML = opts;
+    })
+    .catch(function () { /* the pickers simply stay empty */ });
+}
+
+// ---- pull from WorkIQ ----
+
+document.getElementById("pullBtn").onclick = function () {
+  var btn = this;
+  var title = document.getElementById("pullMeeting").value;
+  if (!title) return note("Watch a meeting first, on the Meetings tab.", true);
+  btn.disabled = true;
+  btn.textContent = "Asking WorkIQ…";
+  note("Asking WorkIQ what you said in " + title + "…");
+  fetch("/api/transcript/pull", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title, speaker: ME })
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      btn.disabled = false; btn.textContent = "Pull update";
+      if (!d.ok) return note(d.error || "Could not pull that update.", true);
+      if (!d.spoke) return note(d.message, true);
+      note("Pulled " + d.topics + " topic(s) from " + d.date + ".");
+      loadTiles().then(function () { setTimeout(closeSheet, 900); });
+    })
+    .catch(function (e) {
+      btn.disabled = false; btn.textContent = "Pull update";
+      note("Pull failed: " + e.message, true);
+    });
+};
+
+// ---- upload a file ----
+
+document.getElementById("pickFile").onclick = function () {
+  if (!meetings.length) return note("Watch a meeting first, on the Meetings tab.", true);
+  document.getElementById("file").click();
+};
+
+document.getElementById("file").onchange = function (e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  var meeting = document.getElementById("forMeeting").value;
+  var dateVal = document.getElementById("forDate").value;
+  var iso = dateVal ? new Date(dateVal + "T09:00:00").toISOString() : new Date().toISOString();
+
+  note("Reading " + f.name + "…");
+  var reader = new FileReader();
+  reader.onload = function () {
+    fetch("/api/transcript", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: f.name, content: String(reader.result),
+        speaker: ME, meeting: meeting, date: iso
+      })
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) return note(d.error || "Could not read that file.", true);
+        note("Read " + d.topics + " topic(s) from " + f.name + ".");
+        loadTiles().then(function () { setTimeout(closeSheet, 900); });
+      })
+      .catch(function (err) { note("Upload failed: " + err.message, true); });
+  };
+  reader.readAsText(f);
+  e.target.value = "";
+};
+
+// ---- tiles ----
+
+function loadApproved() {
+  return fetch("/api/decisions", { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      approvedSources = {};
+      ((d && d.rows) || []).forEach(function (row) {
+        if (row.sourceId && String(row.outcome).indexOf("approved") === 0) {
+          approvedSources[row.sourceId] = row.decidedAt;
+        }
+      });
+    })
+    .catch(function () { approvedSources = {}; });
+}
+
+function renderTiles(sources) {
+  var host = document.getElementById("tiles");
+  if (!sources.length) {
+    host.innerHTML = '<div class="empty">Nothing to review. Use <strong>Add a card</strong> to pull an update.</div>';
+    return;
+  }
+  host.innerHTML = sources.map(function (s) {
+    var done = !!approvedSources[s.id];
+    var ready = (s.cards || []).filter(function (c) { return c.status === "proposed"; }).length;
+    var state = done ? "Posted" : ready ? ready + " ready" : (s.cards || []).length ? "Needs a decision" : "Nothing to post";
+    return '<a class="tile' + (done ? " done" : "") + '" href="meeting.html?id=' + encodeURIComponent(s.id) + '">' +
+      '<div class="tWhen">' + esc(when(s.date)) + "</div>" +
+      '<div class="tName">' + esc(s.meeting || s.label) + "</div>" +
+      '<div class="tSub">' + esc(s.label) + "</div>" +
+      '<div class="tFoot"><span class="pill ' + (done ? "pillDone" : "pillOpen") + '">' + esc(state) + "</span>" +
+      '<span class="tCount">' + s.topicCount + " topic(s)</span></div></a>";
+  }).join("");
+}
+
+function loadTiles() {
+  return Promise.all([
+    loadApproved(),
+    fetch("cards.json", { cache: "no-store" }).then(function (r) { return r.json(); })
+  ]).then(function (both) {
+    var data = both[1];
+    // Chronological, newest first: the meeting you just left is the one you want.
+    var sources = (data.sources || []).slice().sort(function (a, b) {
+      return new Date(b.date) - new Date(a.date);
+    });
+    renderTiles(sources);
+    var done = sources.filter(function (s) { return approvedSources[s.id]; }).length;
+    document.getElementById("tilesNote").textContent =
+      sources.length + " meeting(s) · " + done + " posted · built from " +
+      data.org + "/" + data.project + " at " + new Date(data.generatedAt).toLocaleString() + ".";
+  }).catch(function (e) {
+    document.getElementById("tiles").innerHTML =
+      '<div class="empty">Could not load cards — ' + esc(e.message) + "</div>";
+  });
+}
+
+loadMeetings().then(loadTiles);
+</script>
+</body>
+</html>
