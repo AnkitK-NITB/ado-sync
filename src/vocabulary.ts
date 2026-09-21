@@ -30,11 +30,12 @@ function escapeRegExp(s: string): string {
 /**
  * A variant as a pattern that tolerates however the transcriber spaced it.
  *
- * "ACHME SDK" has to match "FERN  SDK", "FERN-SDK" and a line break too --
- * whitespace and hyphenation in a transcript are an artefact of the recogniser,
- * not something the speaker chose. One separator is still required, so a
- * variant can never match its own canonical form ("start Cosmos" must not eat
- * "StartCosmos") and turn the repair into a no-op that still reports itself.
+ * A two-word term has to match when the recogniser doubled the space, wrote a
+ * hyphen, or broke the line -- whitespace and hyphenation in a transcript are
+ * an artefact of the recogniser, not something the speaker chose. One separator
+ * is still required, so a variant can never match its own canonical form
+ * ("start Cosmos" must not eat "StartCosmos") and turn the repair into a no-op
+ * that still reports itself.
  */
 function variantPattern(variant: string): string {
   const parts = variant.trim().split(/[\s\-_]+/).filter(Boolean).map(escapeRegExp);
