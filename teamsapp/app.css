@@ -239,6 +239,15 @@ td.k { color: var(--text-secondary); width: 220px; }
 .tileWrap:hover .tDel, .tDel:focus { opacity: 1; }
 .tDel:hover { background: var(--danger-bg, rgba(196,43,28,.12)); color: var(--danger, #c42b1c); }
 .tDel:disabled { cursor: default; opacity: 1; }
+/* Armed: the inline confirmation. Stays visible regardless of hover, because
+   it is now asking a question and must not vanish when the pointer moves. */
+.tDel.armed {
+  opacity: 1; width: auto; padding: 0 8px; font-size: 12px; font-weight: 600;
+  background: var(--danger-bg, rgba(196,43,28,.12));
+  color: var(--danger, #c42b1c);
+  border-color: var(--danger, #c42b1c);
+}
+.note.bad { color: var(--danger, #c42b1c); }
 .tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
 /* Approved tiles stay exactly where they are -- the order is chronological, and
    a tile that jumps on approval loses the place you were working through. */

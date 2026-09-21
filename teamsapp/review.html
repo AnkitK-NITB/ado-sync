@@ -19,6 +19,7 @@
 </div>
 
 <div id="tiles" class="tiles">Loading…</div>
+<div class="note" id="tilesMsg" hidden></div>
 
 <div class="overlay" id="overlay" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -217,27 +218,59 @@ function renderTiles(sources) {
 /**
  * Discarding a card throws away a proposal, not a work item.
  *
- * Worth saying plainly in the confirmation, because "delete" next to something
- * that writes to Azure DevOps reads as far more destructive than it is.
+ * The confirmation is inline rather than window.confirm: a Teams tab is a
+ * sandboxed iframe, where the browser modals are suppressed, so confirm()
+ * returns without ever showing anything and the click appears to do nothing.
+ * Arming the button instead works the same in Teams and in a browser, and it
+ * keeps the warning next to the thing it is warning about.
  */
+function tileNote(msg, bad) {
+  var el = document.getElementById("tilesMsg");
+  el.textContent = msg || "";
+  el.hidden = !msg;
+  el.className = "note" + (bad ? " bad" : "");
+}
+
 function wireTileDeletes() {
   var host = document.getElementById("tiles");
-  host.querySelectorAll("button[data-del]").forEach(function (btn) {
+  var buttons = host.querySelectorAll("button[data-del]");
+
+  buttons.forEach(function (btn) {
+    var timer = null;
+
+    function disarm() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      btn.classList.remove("armed");
+      btn.textContent = "\u2715";
+      btn.title = "Discard this card";
+    }
+    btn._disarm = disarm;
+
     btn.onclick = function (ev) {
-      // The button sits inside the tile's click target.
+      // The button sits inside the tile's link.
       ev.preventDefault();
       ev.stopPropagation();
 
       var id = btn.getAttribute("data-del");
       var label = btn.getAttribute("data-label");
-      if (!window.confirm(
-        "Discard the card for \u201C" + label + "\u201D?\n\n" +
-        "This removes the proposal only. Nothing already posted to Azure DevOps is affected, " +
-        "and the meeting stays subscribed so a new card can be built."
-      )) return;
 
+      if (!btn.classList.contains("armed")) {
+        buttons.forEach(function (o) { if (o !== btn) o._disarm(); });
+        btn.classList.add("armed");
+        btn.textContent = "Remove?";
+        btn.title = "Click again to discard";
+        tileNote("Discarding \u201C" + label + "\u201D removes the proposal only \u2014 nothing " +
+                 "already posted to Azure DevOps is affected, and the meeting stays subscribed " +
+                 "so a new card can be built. Click again to confirm.");
+        timer = setTimeout(function () { disarm(); tileNote(""); }, 6000);
+        return;
+      }
+
+      disarm();
       btn.disabled = true;
       btn.textContent = "\u2026";
+      tileNote("Discarding \u201C" + label + "\u201D\u2026");
+
       fetch("/api/source/remove", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -246,13 +279,14 @@ function wireTileDeletes() {
         .then(function (r) { return r.json(); })
         .then(function (j) {
           if (!j.ok) throw new Error(j.error || "could not discard");
-          note("Discarded \u201C" + label + "\u201D.");
-          return loadTiles();
+          return loadTiles().then(function () {
+            tileNote("Discarded \u201C" + label + "\u201D.");
+          });
         })
         .catch(function (err) {
           btn.disabled = false;
-          btn.textContent = "\u2715";
-          note("Could not discard: " + err.message, true);
+          disarm();
+          tileNote("Could not discard: " + err.message, true);
         });
     };
   });
