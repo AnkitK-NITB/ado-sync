@@ -85,7 +85,7 @@ per-component status — including that writes are disabled in this build.
 
 - six spoken topics on one work item, one card, one comment
 - each update tagged DONE / NEXT / IN PROGRESS
-- the vocabulary repair surfaced as *Heard "ACME SDK" — matched as AcmeSDK. Accept into the text?*
+- the vocabulary repair surfaced as *Heard "ACHME SDK" — matched as AcmeSDK. Accept into the text?*
 - the corroboration line explaining why the match was settled
 - what was deliberately kept out of Azure DevOps, and why
 

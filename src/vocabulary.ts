@@ -6,7 +6,7 @@ import { VocabularyFile, VocabularyTerm, WordCorrection } from "./types";
  * This matters more than it looks. The matcher keys on signal terms, and a
  * product name is usually the most discriminating word in an update -- so a
  * mangled name does not merely weaken a match, it deletes the best evidence
- * for it. "ACME SDK" and "ACMES DK" are both AcmeSDK, which appears in 4096
+ * for it. "ACHME SDK" and "ACHMES DK" are both AcmeSDK, which appears in 4096
  * work items; as transcribed, neither matches anything at all.
  *
  * Corrections apply to MATCHING only. What a person said is never rewritten in

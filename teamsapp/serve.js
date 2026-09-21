@@ -17,10 +17,30 @@ const { execFile } = require("child_process");
 const { buildPatch, isStaleRevRejection } = require(path.join(__dirname, "..", "out", "write.js"));
 const { recordDecision, summarise } = require(path.join(__dirname, "..", "out", "telemetry.js"));
 const { buildGroupProposal } = require(path.join(__dirname, "..", "out", "consolidate.js"));
+const { createWatcher } = require(path.join(__dirname, "watcher.js"));
 
-const PORT = 53000;
+const PORT = Number(process.env.ADOSYNC_PORT || 53000);
 const CERT = path.join(__dirname, "devcert.pfx");
 const ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"; // Azure DevOps
+
+// Who "you" are. Read from enrolment so the agent can never speak for someone
+// who did not attend.
+const DEFAULT_SPEAKER = (function () {
+  try {
+    const f = path.join(__dirname, "..", "data", "enrollment.json");
+    const e = JSON.parse(fs.readFileSync(f, "utf8"));
+    return e.displayName || e.speaker || "Ankit Kushwaha";
+  } catch (e) {
+    return "Ankit Kushwaha";
+  }
+})();
+
+// How often to look for a new transcript of a subscribed meeting. Short enough
+// to be observable in a demo, long enough not to hammer WorkIQ.
+const WATCH_INTERVAL_MS = Number(process.env.ADOSYNC_WATCH_MS || 60000);
+
+// Assigned once the helpers it depends on are defined, below.
+let watcher = null;
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".png": "image/png",
@@ -637,6 +657,15 @@ async function toggleMeeting(req, res) {
     meetings = meetings.filter((m) => m.title.toLowerCase() !== title.toLowerCase());
   }
   writeWatched(meetings);
+
+  // Subscribing is the whole interaction. From here the transcript is fetched
+  // and a card is built without the user asking again -- so the response is
+  // sent immediately rather than waiting on WorkIQ.
+  if (watcher) {
+    if (want && !has) watcher.onSubscribe(title);
+    else if (!want && has) watcher.onUnsubscribe(title);
+  }
+
   send(res, 200, { ok: true, watched: want, meetings });
 }
 
@@ -648,13 +677,52 @@ async function toggleMeeting(req, res) {
  * transcript, and the cards are rebuilt. A meeting where they said nothing
  * produces no transcript rather than an invented one.
  */
+/**
+ * Turn a pulled transcript into a stored transcript file and rebuild the cards.
+ *
+ * Shared by the manual pull and by the watcher, so an autonomously produced
+ * card is byte-for-byte the same artefact as a hand-pulled one. Resolves once
+ * the card build finishes.
+ */
+function ingestPulled(title, speaker, pulled) {
+  return new Promise((resolve, reject) => {
+    const date = pulled.date ? pulled.date + "T09:00:00.000Z" : new Date().toISOString();
+    const id = (title + "-" + date.slice(0, 10))
+      .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+
+    const dir = path.join(__dirname, "..", "data", "transcripts");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, id + ".json"), JSON.stringify({
+      id,
+      label: title + " — " + pulled.date,
+      meeting: title,
+      date,
+      speaker,
+      blurb: "Pulled live from WorkIQ, " + pulled.topics.length + " topic(s).",
+      expect: "",
+      topics: pulled.topics,
+      exclude: [],
+    }, null, 2));
+
+    execFile(
+      process.execPath,
+      [path.join(__dirname, "..", "tools", "build-cards.js")],
+      { cwd: path.join(__dirname, "..") },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error((stderr || err.message).trim()));
+        resolve({ id, date: pulled.date, topics: pulled.topics.length, log: String(stdout).trim() });
+      }
+    );
+  });
+}
+
 async function pullTranscript(req, res) {
   let payload;
   try { payload = await readJson(req); }
   catch (e) { return send(res, 400, { ok: false, error: "bad request body" }); }
 
   const title = String((payload || {}).title || "").trim();
-  const speaker = String((payload || {}).speaker || "Ankit Kushwaha").trim();
+  const speaker = String((payload || {}).speaker || DEFAULT_SPEAKER).trim();
   if (!title) return send(res, 400, { ok: false, error: "which meeting?" });
 
   let pulled;
@@ -668,36 +736,13 @@ async function pullTranscript(req, res) {
     });
   }
 
-  const date = pulled.date ? pulled.date + "T09:00:00.000Z" : new Date().toISOString();
-  const id = (title + "-" + date.slice(0, 10))
-    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
-
-  const dir = path.join(__dirname, "..", "data", "transcripts");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, id + ".json"), JSON.stringify({
-    id,
-    label: title + " — " + pulled.date,
-    meeting: title,
-    date,
-    speaker,
-    blurb: "Pulled live from WorkIQ, " + pulled.topics.length + " topic(s).",
-    expect: "",
-    topics: pulled.topics,
-    exclude: [],
-  }, null, 2));
-
-  execFile(
-    process.execPath,
-    [path.join(__dirname, "..", "tools", "build-cards.js")],
-    { cwd: path.join(__dirname, "..") },
-    (err, stdout, stderr) => {
-      if (err) return send(res, 500, { ok: false, error: (stderr || err.message).trim() });
-      send(res, 200, {
-        ok: true, spoke: true, id, date: pulled.date,
-        topics: pulled.topics.length, log: String(stdout).trim(),
-      });
-    }
-  );
+  try {
+    const result = await ingestPulled(title, speaker, pulled);
+    if (watcher) watcher.noteIngested(title, pulled.date);
+    send(res, 200, { ok: true, spoke: true, ...result });
+  } catch (e) {
+    send(res, 500, { ok: false, error: e.message });
+  }
 }
 
 function handler(req, res) {
@@ -706,6 +751,9 @@ function handler(req, res) {
 
   if (req.method === "POST" && route === "/api/transcript/pull") {
     return pullTranscript(req, res).catch((e) => send(res, 500, { ok: false, error: e.message }));
+  }
+  if (req.method === "GET" && route === "/api/watcher") {
+    return send(res, 200, { ok: true, ...(watcher ? watcher.status() : { running: false }) });
   }
   if (req.method === "GET" && route === "/api/meetings/discover") {
     return discoverMeetings(req, res, url).catch((e) => send(res, 500, { ok: false, error: e.message }));
@@ -754,12 +802,25 @@ function handler(req, res) {
   serveFile(req, res);
 }
 
+// The ambient trigger. Subscribing to a meeting is the last thing a person
+// does; from then on the transcript is fetched and cards are built on their
+// own. It never writes -- approval and the revision test still gate that.
+watcher = createWatcher({
+  readWatched,
+  probe: (title, speaker) => workiq.transcript(title, speaker),
+  ingest: (title, speaker, pulled) => ingestPulled(title, speaker, pulled),
+  speaker: DEFAULT_SPEAKER,
+  intervalMs: WATCH_INTERVAL_MS,
+});
+
 if (fs.existsSync(CERT)) {
   const passfile = path.join(__dirname, "devcert.pwd");
   const passphrase = fs.existsSync(passfile) ? fs.readFileSync(passfile, "utf8").trim() : "";
   https.createServer({ pfx: fs.readFileSync(CERT), passphrase }, handler).listen(PORT, () => {
     console.log(`HTTPS  https://localhost:${PORT}/index.html`);
     console.log("Approve performs a real guarded write to Azure DevOps as the signed-in user.");
+    console.log(`Watching subscribed meetings every ${Math.round(WATCH_INTERVAL_MS / 1000)}s.`);
+    watcher.start();
   });
 } else {
   http.createServer(handler).listen(PORT, () => {
@@ -768,5 +829,8 @@ if (fs.existsSync(CERT)) {
     console.log("No devcert.pfx found, so this is plain HTTP.");
     console.log("A browser renders it fine. Teams will NOT -- the tab stays blank.");
     console.log("Run:  powershell -ExecutionPolicy Bypass -File setup-dev-cert.ps1");
+    console.log("");
+    console.log(`Watching subscribed meetings every ${Math.round(WATCH_INTERVAL_MS / 1000)}s.`);
+    watcher.start();
   });
 }

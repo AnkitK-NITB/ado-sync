@@ -13,6 +13,19 @@
 <h1>Meetings</h1>
 <div class="lede">The meetings ADO Sync watches for your updates.</div>
 
+<div id="watcherStrip" class="watcherStrip" hidden>
+  <div class="watcherHead">
+    <span id="watcherDot" class="watcherDot"></span>
+    <strong id="watcherState">Watching</strong>
+    <span id="watcherMeta" class="watcherMeta"></span>
+  </div>
+  <div class="watcherNote">
+    Subscribed meetings are checked on their own. Cards appear here without you
+    asking. Nothing is written to Azure DevOps until you approve it.
+  </div>
+  <div id="watcherRuns" class="watcherRuns"></div>
+</div>
+
 <div class="panel">
   <div id="watchList" class="watchList">Loading…</div>
   <div class="addRow">
@@ -54,7 +67,7 @@ function renderMeetings() {
     return '<div class="watch"><div><div class="wTitle">' + esc(m.title) + '</div>' +
            '<div class="wWhen">' + esc(m.schedule || "no schedule recorded") + '</div></div>' +
            '<div class="wActions">' +
-           '<button class="btn btnAlt" data-pull="' + esc(m.title) + '">Pull update</button>' +
+           '<button class="btn btnAlt" data-pull="' + esc(m.title) + '">Check now</button>' +
            '<button class="linkBtn" data-remove="' + esc(m.title) + '">Stop watching</button>' +
            '</div></div>';
   }).join("");
@@ -93,7 +106,7 @@ function removeMeeting(title) {
     });
 }
 
-// ---- pull an update straight from WorkIQ ----
+// ---- check a meeting right now, rather than waiting for the watcher ----
 
 function pullUpdate(btn, title) {
   var original = btn.textContent;
@@ -107,13 +120,13 @@ function pullUpdate(btn, title) {
   }).then(function (r) { return r.json(); })
     .then(function (d) {
       btn.disabled = false; btn.textContent = original;
-      if (!d.ok) return note(d.error || "Could not pull that update.", true);
+      if (!d.ok) return note(d.error || "Could not check that meeting.", true);
       if (!d.spoke) return note(d.message, true);
-      note("Pulled " + d.topics + " topic(s) from " + d.date + ". Open Review to see the card.");
+      note("Found " + d.topics + " topic(s) from " + d.date + ". Open Review to see the card.");
     })
     .catch(function (e) {
       btn.disabled = false; btn.textContent = original;
-      note("Pull failed: " + e.message, true);
+      note("Check failed: " + e.message, true);
     });
 }
 
@@ -196,7 +209,76 @@ document.getElementById("syncBtn").onclick = function () {
     });
 };
 
+// ---- the ambient trigger, made visible ----
+// The point of a watcher is that nobody is driving it, which is also what makes
+// it hard to believe. So its heartbeat and every decision it takes are shown.
+var WATCH_EVENT_LABEL = {
+  "watcher-started":   "started watching",
+  "subscribed":        "subscribed",
+  "unsubscribed":      "unsubscribed",
+  "card-built":        "built a card",
+  "no-update":         "no update from you",
+  "already-ingested":  "already have that one",
+  "probe-failed":      "WorkIQ did not answer",
+  "ingest-failed":     "could not build a card",
+  "manual-pull":       "checked by hand",
+  "tick":              "checked"
+};
+
+function ago(iso) {
+  var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+
+function renderWatcher(d) {
+  var strip = document.getElementById("watcherStrip");
+  if (!d || !d.running) { strip.hidden = true; return; }
+  strip.hidden = false;
+
+  document.getElementById("watcherDot").className =
+    "watcherDot" + (d.busy ? " busy" : "");
+  document.getElementById("watcherState").textContent =
+    d.busy ? "Checking now…" : "Watching";
+
+  var every = Math.round((d.intervalMs || 60000) / 1000);
+  var subscribed = Object.keys(d.seen || {}).length;
+  document.getElementById("watcherMeta").textContent =
+    "every " + every + "s · " + d.ticks + " check" + (d.ticks === 1 ? "" : "s") +
+    " · " + subscribed + " meeting" + (subscribed === 1 ? "" : "s") + " seen";
+
+  // Ticks that found nothing are the majority and say little, so the log shows
+  // decisions. The heartbeat above already proves it is alive.
+  var interesting = (d.runs || []).filter(function (r) {
+    return r.event !== "tick";
+  }).slice(0, 6);
+
+  document.getElementById("watcherRuns").innerHTML = interesting.length
+    ? interesting.map(function (r) {
+        var cls = r.event === "card-built" ? "runRow built"
+                : (r.error ? "runRow bad" : "runRow");
+        return '<div class="' + cls + '">' +
+          '<span class="runAgo">' + ago(r.at) + '</span>' +
+          '<span class="runWhat">' + (WATCH_EVENT_LABEL[r.event] || r.event) + '</span>' +
+          '<span class="runWho">' + (r.meeting ? esc(r.meeting) : "") + '</span>' +
+          (r.topics ? '<span class="runTopics">' + r.topics + ' topic(s)</span>' : "") +
+          '</div>';
+      }).join("")
+    : '<div class="runRow"><span class="runWhat">no activity yet</span></div>';
+}
+
+function loadWatcher() {
+  fetch("/api/watcher")
+    .then(function (r) { return r.json(); })
+    .then(renderWatcher)
+    .catch(function () { /* the strip simply stays as it was */ });
+}
+
 loadMeetings();
+loadWatcher();
+// Fast enough that a card appearing on its own is watchable in real time.
+setInterval(function () { loadWatcher(); loadMeetings(); }, 5000);
 </script>
 </body>
 </html>

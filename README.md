@@ -13,13 +13,37 @@ says nine days ago. The update was never missing. It was just never written down
 
 ## What it does
 
-1. Reads a meeting transcript you already have.
+1. Notices a meeting you subscribed to has happened, and fetches what was said.
 2. Works out which work item each spoken update belongs to.
 3. Proposes the comment that update implies.
 4. You approve, edit, pick a different item, or skip.
 5. Only then does it write — as a guarded write.
 
 It never writes on its own, and it never guesses who you are.
+
+### Nobody has to ask it to run
+
+Tick a meeting on the Meetings tab and that is the last instruction it needs.
+`teamsapp/watcher.js` fires once on subscribe and then polls on an interval,
+asking WorkIQ what you said in the most recent occurrence and building a card
+from the answer. Everything it does — including the ticks that find nothing —
+is appended to a run log, because "running and finding nothing" has to be
+distinguishable from "died quietly".
+
+Because WorkIQ answers about *the most recent occurrence* rather than about a
+specific one, a naive poller would rebuild the same card forever. State is
+therefore keyed on the occurrence date in `data/watcher-state.json`.
+
+The autonomy stops at the proposal. The **trigger** is autonomous; the **write**
+is not, and the watcher has no path to Azure DevOps at all. To see the whole
+loop run without a human in it:
+
+```bash
+node tools/prove-ambient.js
+```
+
+It subscribes to one meeting, then only reads — and reports whether a card
+appeared on its own.
 
 ### Matching is ranked, and it admits when it cannot decide
 
@@ -47,9 +71,9 @@ what you said is never altered.
 | Path | What it is |
 | --- | --- |
 | `src/` | The engine: segmentation, matching, consolidation, the guarded write |
-| `src/test/` | Evals for the matching tiers, ambiguity, and the write guard |
-| `teamsapp/` | The Teams tab — home, meetings, review, and the approval surface |
-| `tools/` | Helpers to fetch work items and build cards from transcripts |
+| `src/test/` | Evals for the matching tiers, ambiguity, the write guard, and the watcher |
+| `teamsapp/` | The Teams tab — home, meetings, review, the approval surface, and the watcher |
+| `tools/` | Helpers to fetch work items, build cards, and prove the ambient loop |
 | `data/` | Runtime inputs. Empty here on purpose — see `data/README.md` |
 
 ## Running it

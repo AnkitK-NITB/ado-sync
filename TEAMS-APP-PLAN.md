@@ -80,13 +80,13 @@ Cards are never merged across people, and the comment is dated the meeting rathe
 
 ### 2.4 Transcription mangles domain vocabulary — fixed 2026-09-18
 
-The 16 Sep transcript rendered `AcmeSDK` as "ACME SDK" and "ACMES DK". Checked against ADO: `AcmeSDK` returns **4096** hits including the repo path `AcmeSDK/AcmeSDK/bin/scripts/`, while "ACME SDK" returns 5 unrelated ones. Because the matcher keys on signal terms, a mangled product name does not merely weaken a match — it deletes the most discriminating word in the update.
+The 16 Sep transcript rendered `AcmeSDK` as "ACHME SDK" and "ACHMES DK". Checked against ADO: `AcmeSDK` returns **4096** hits including the repo path `AcmeSDK/AcmeSDK/bin/scripts/`, while "ACHME SDK" returns 5 unrelated ones. Because the matcher keys on signal terms, a mangled product name does not merely weaken a match — it deletes the most discriminating word in the update.
 
 `vocabulary.ts` repairs known mis-transcriptions before matching, driven by `data/vocabulary.json`. WorkIQ sourced the variants from the team's own standup transcripts and **declined to invent any it could not substantiate**, which is the behaviour this needs. Each canonical term was cross-checked against work item titles.
 
 The strongest find was not AcmeSDK but HWLC: the same transcript contains both the corrupt form "hardware lock" and the expansion "HWLC … hardware log collector", and ADO confirms it with PBI 36224176 *"[xPF] Enabling HWLC (Hardware Log Collector) on DPU clusters"*.
 
-**Decided: corrections apply to matching only.** The words a person said are never rewritten in a comment posted under their name. The card shows *heard "ACME SDK" — matched as AcmeSDK. Accept into the text?* so the correction is taken deliberately. An eval asserts the posted comment still quotes what was actually said.
+**Decided: corrections apply to matching only.** The words a person said are never rewritten in a comment posted under their name. The card shows *heard "ACHME SDK" — matched as AcmeSDK. Accept into the text?* so the correction is taken deliberately. An eval asserts the posted comment still quotes what was actually said.
 
 ### 2.5 Linked items are unreachable
 
@@ -103,6 +103,21 @@ In that same update, *"I filed a bug with Tony… he has fixed it"* refers to Bu
 | No scheduling | No daily run, no catch-up for late transcripts |
 | Modes incomplete | review-only and comment work; permitted field updates are unimplemented |
 | Receipts are not delivered | Written to disk, not sent privately to the user |
+
+### 2.7 Closed since this table was written — 2026-09-21
+
+Three rows above no longer hold. They are left in place because the reasoning
+that produced them is still the reason the rest of the table matters.
+
+| Row | What changed |
+|---|---|
+| No scheduling | `teamsapp/watcher.js` polls every subscribed meeting on an interval and also fires once on subscribe. State is keyed on the meeting's occurrence date in `data/watcher-state.json`, so a repeated answer about *"the most recent occurrence"* cannot rebuild the same card twice. `tools/prove-ambient.js` drives it end to end without a human in the loop. |
+| Input is a fixture | The Teams app pulls a transcript live through WorkIQ (`teamsapp/workiq.js`) or accepts an uploaded transcript. Both paths converge on `ingestPulled()` in `serve.js`, which is the same code the watcher calls. |
+| Cards are terminal output | `teamsapp/review.html` renders the proposals as cards with Approve / Edit / Choose another / Skip. |
+
+The autonomy boundary did not move: the **trigger** is now autonomous, the
+**write** is still not. The watcher never touches Azure DevOps — it only builds
+a proposal and leaves it for a human.
 
 ---
 
@@ -130,7 +145,7 @@ The meeting APIs enforce a **meeting roster ACL**; the retrieval path enforces *
 Two useful shapes, both verified against the 16 Sep standup:
 
 - **Speaker-attributed transcript text** via `retrieve` with the `Meetings` capability — literally `"Kushal T S: …last week I was working on a couple of PRs…"`. Truncated head-and-tail with `[...]` elision, so the middle of a long meeting is lost.
-- **The AI meeting recap** via `retrieve` with `strategy: "grounding"` — per-person topic summaries plus explicit action items: *"CPU-DPU Metrics: Collect DPU metrics using the fixed ACME SDK, compare them with CPU metrics, and add the comparison to the existing dashboard to assess parity. **(Ankit)**"*. Not truncated, already de-filtered, already attributed.
+- **The AI meeting recap** via `retrieve` with `strategy: "grounding"` — per-person topic summaries plus explicit action items: *"CPU-DPU Metrics: Collect DPU metrics using the fixed ACHME SDK, compare them with CPU metrics, and add the comparison to the existing dashboard to assess parity. **(Ankit)**"*. Not truncated, already de-filtered, already attributed.
 
 The recap is the better input. It is closer to what the engine wants than raw speech is, and it survives the attribution gaps noted in §3.5.
 
@@ -169,7 +184,7 @@ The retrieval route removes an admin dependency and adds these. Two are structur
 
 | # | Blocker | Evidence | Severity |
 |---|---|---|---|
-| 1 | **Retrieval returns chunks, not whole transcripts** | The 16 Sep hit came back with `truncationInfo: Content has been truncated` and `[...]` elisions cutting mid-word: *"ACMES DK version that WKLD was cons [...]"*. A more targeted query returned passages from a **different meeting**. | **Structural** |
+| 1 | **Retrieval returns chunks, not whole transcripts** | The 16 Sep hit came back with `truncationInfo: Content has been truncated` and `[...]` elisions cutting mid-word: *"ACHMES DK version that WKLD was cons [...]"*. A more targeted query returned passages from a **different meeting**. | **Structural** |
 | 2 | **The good recap may be outside the public API's scope** | The per-person action-item recap came from WorkIQ capability `Meetings`. The documented Retrieval API covers *"SharePoint, OneDrive, and Copilot connectors"*. The raw transcript **is** OneDrive-resident and reachable under `OneDriveAndSharePoint` alone; the recap surface is unconfirmed. | **Structural** |
 | 3 | Every user needs a **Microsoft 365 Copilot licence** | Both the Retrieval and Meeting Insights APIs sit in the Copilot namespace. | Adoption cost |
 | 4 | Source content carries a **sensitivity label** | The hit returned `General — "Business data which is NOT meant for public consumption"`. Copying it into an ADO comment needs a deliberate call. | Compliance |

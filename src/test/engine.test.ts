@@ -624,7 +624,7 @@ test("two people talking about the same item get their own cards", () => {
 
 const VOCAB: VocabularyFile = {
   terms: [
-    { canonical: "AcmeSDK", variants: ["ACME SDK", "ACMES DK"] },
+    { canonical: "AcmeSDK", variants: ["ACHME SDK", "ACHMES DK"] },
     { canonical: "HWLC", variants: ["hardware lock", "hardware local"] },
     { canonical: "Hardware Log Collector", variants: ["hardware lock collector"] },
     // Capitalisation only: survives tokenisation identically, so it must be a no-op.
@@ -634,12 +634,12 @@ const VOCAB: VocabularyFile = {
 
 test("a mangled product name is repaired before matching", () => {
   const { normalized, corrections } = canonicalize(
-    "There was an issue with the ACME SDK version WKLD consumes.",
+    "There was an issue with the ACHME SDK version WKLD consumes.",
     VOCAB
   );
   assert.match(normalized, /AcmeSDK/);
-  assert.doesNotMatch(normalized, /ACME SDK/);
-  assert.deepEqual(corrections, [{ heard: "ACME SDK", canonical: "AcmeSDK" }]);
+  assert.doesNotMatch(normalized, /ACHME SDK/);
+  assert.deepEqual(corrections, [{ heard: "ACHME SDK", canonical: "AcmeSDK" }]);
 });
 
 test("the longest matching variant wins", () => {
@@ -657,7 +657,7 @@ test("a spelling difference that changes no token is not reported as a correctio
 
 test("repairing a name recovers a match that was otherwise lost", () => {
   const acmesdk = wi({ id: 600, title: "Decouple Stable AcmeSDK scheduler" });
-  const spoken = "I looked at the ACME SDK scheduler work.";
+  const spoken = "I looked at the ACHME SDK scheduler work.";
 
   const raw = normalize(
     { meeting: {} as any, utterances: [{ speaker: "Ankit Kushwaha", text: spoken }] } as Transcript,
@@ -676,14 +676,14 @@ test("repairing a name recovers a match that was otherwise lost", () => {
 });
 
 test("the words a person said are never rewritten on the card", () => {
-  const spoken = "I looked at the ACME SDK scheduler work.";
+  const spoken = "I looked at the ACHME SDK scheduler work.";
   const [u] = normalize(
     { meeting: {} as any, utterances: [{ speaker: "Ankit Kushwaha", text: spoken }] } as Transcript,
     [ME],
     VOCAB
   );
   assert.equal(u.text, spoken, "the posted text must stay verbatim");
-  assert.deepEqual(u.corrections, [{ heard: "ACME SDK", canonical: "AcmeSDK" }]);
+  assert.deepEqual(u.corrections, [{ heard: "ACHME SDK", canonical: "AcmeSDK" }]);
 });
 
 test("a correction reaches the card so it can be accepted deliberately", () => {
@@ -691,14 +691,14 @@ test("a correction reaches the card so it can be accepted deliberately", () => {
   const [u] = normalize(
     {
       meeting: {} as any,
-      utterances: [{ speaker: "Ankit Kushwaha", text: "I finished the ACME SDK scheduler decoupling." }],
+      utterances: [{ speaker: "Ankit Kushwaha", text: "I finished the ACHME SDK scheduler decoupling." }],
     } as Transcript,
     [ME],
     VOCAB
   );
   const [card] = consolidate([{ update: u, outcome: matchOne(u, [acmesdk], ME) }], new Map());
-  assert.deepEqual(card.updates[0].corrections, [{ heard: "ACME SDK", canonical: "AcmeSDK" }]);
-  assert.match(card.proposed!.commentMarkdown, /ACME SDK/, "the comment quotes what was said");
+  assert.deepEqual(card.updates[0].corrections, [{ heard: "ACHME SDK", canonical: "AcmeSDK" }]);
+  assert.match(card.proposed!.commentMarkdown, /ACHME SDK/, "the comment quotes what was said");
 });
 
 
@@ -779,7 +779,7 @@ const decisionCard = (tier: string, corroborated = false, corrections = 0): any 
   status: "proposed",
   workItem: wi({ id: 800, title: "Thing" }),
   updates: [{ text: "x", tier, reason: "", corroborated: false,
-    corrections: corrections > 0 ? [{ heard: "ACME SDK", canonical: "AcmeSDK" }] : undefined }],
+    corrections: corrections > 0 ? [{ heard: "ACHME SDK", canonical: "AcmeSDK" }] : undefined }],
   corroboration: corroborated ? "two parts agree" : undefined,
   controls: [],
 });
@@ -1023,9 +1023,9 @@ function editableCard(): any {
     status: "proposed",
     workItem: wi({ id: 900, title: "[NODE WKLD] Perf parity", state: "Committed", rev: 10 }),
     updates: [
-      { text: "I found an issue in the ACME SDK version WKLD consumes.", topic: "AcmeSDK issue",
+      { text: "I found an issue in the ACHME SDK version WKLD consumes.", topic: "AcmeSDK issue",
         progress: "DONE", tier: "assigned", reason: "", corroborated: false,
-        corrections: [{ heard: "ACME SDK", canonical: "AcmeSDK" }] },
+        corrections: [{ heard: "ACHME SDK", canonical: "AcmeSDK" }] },
       { text: "I will collect the DPU metrics next.", topic: "Collect metrics",
         progress: "NEXT", tier: "assigned", reason: "", corroborated: false },
       { text: "Roughly 5 percent variance is acceptable.", topic: "Acceptance criteria",
@@ -1062,7 +1062,7 @@ test("removing one line drops it from the comment and keeps the rest", () => {
 
 test("accepting a correction rewrites only that line, and only then", () => {
   const before = editableCard();
-  assert.match(before.updates[0].text, /ACME SDK/);
+  assert.match(before.updates[0].text, /ACHME SDK/);
 
   const { card, provenance } = applyEdits(
     before,
@@ -1070,7 +1070,7 @@ test("accepting a correction rewrites only that line, and only then", () => {
     MEETING_DAY
   );
   assert.match(card.updates[0].text, /AcmeSDK/);
-  assert.doesNotMatch(card.updates[0].text, /ACME SDK/);
+  assert.doesNotMatch(card.updates[0].text, /ACHME SDK/);
   assert.equal(card.updates[0].corrections, undefined, "a taken repair is no longer on offer");
   assert.equal(provenance.correctionsAccepted, 1);
 });

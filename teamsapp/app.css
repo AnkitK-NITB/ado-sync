@@ -335,3 +335,38 @@ td.k { color: var(--text-secondary); width: 220px; }
 .orRule::before, .orRule::after {
   content: ""; flex: 1; height: 1px; background: var(--border);
 }
+
+/* ---- the ambient trigger, made visible ----------------------------------
+   Nobody is driving the watcher, which is exactly what makes it hard to
+   believe. A live heartbeat plus its recent decisions is the evidence. */
+.watcherStrip {
+  border: 1px solid var(--border); border-left: 3px solid #6264a7;
+  border-radius: 6px; padding: 14px 16px; margin: 0 0 18px;
+  background: var(--surface-raised, rgba(255,255,255,0.03));
+}
+.watcherHead { display: flex; align-items: center; gap: 10px; }
+.watcherDot {
+  width: 9px; height: 9px; border-radius: 50%; background: #6bb700;
+  box-shadow: 0 0 0 0 rgba(107,183,0,0.55); animation: watchPulse 2.4s infinite;
+}
+.watcherDot.busy { background: #f0b400; animation-duration: 0.9s; }
+@keyframes watchPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(107,183,0,0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(107,183,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(107,183,0,0); }
+}
+.watcherMeta { color: var(--text-secondary); font-size: 12px; }
+.watcherNote { color: var(--text-secondary); font-size: 12px; margin: 6px 0 10px; }
+.watcherRuns { display: flex; flex-direction: column; gap: 3px; }
+.runRow {
+  display: flex; gap: 12px; align-items: baseline;
+  font-size: 12px; color: var(--text-secondary);
+  padding: 3px 0; border-top: 1px solid var(--border);
+}
+.runRow.built { color: var(--text-primary); }
+.runRow.built .runWhat { color: #6bb700; font-weight: 600; }
+.runRow.bad .runWhat { color: #d13438; }
+.runAgo { min-width: 66px; opacity: 0.75; }
+.runWhat { min-width: 150px; }
+.runWho { flex: 1; }
+.runTopics { opacity: 0.8; }

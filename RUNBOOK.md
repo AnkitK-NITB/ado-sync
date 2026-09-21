@@ -164,7 +164,7 @@ coincidence. This is what puts six topics on one PBI.
 **State is conservative.** Anything outstanding anywhere in a card leaves the state alone.
 Finishing one topic never closes the item.
 
-**Vocabulary repairs matching only.** `ACME SDK` → `AcmeSDK` changes what is *matched*, not
+**Vocabulary repairs matching only.** `ACHME SDK` → `AcmeSDK` changes what is *matched*, not
 what is *posted*. The card offers the repair; the person takes it deliberately. The engine
 never rewrites words attributed to someone.
 
@@ -336,7 +336,7 @@ them, which is what makes `data/vocabulary.json` trustworthy.
 
 Cross-check every canonical term against real work item titles before adding it. `AcmeSDK`
 returns 4096 hits in `contoso/Engineering` including the repo path `AcmeSDK/AcmeSDK/bin/scripts/`,
-while `ACME SDK` returns 5 unrelated ones — that is the level of evidence to want.
+while `ACHME SDK` returns 5 unrelated ones — that is the level of evidence to want.
 
 Add entries to `data/vocabulary.json`, then re-run `build-cards.js`. A variant that
 tokenises identically to its canonical form (pure capitalisation) is ignored, so those are
