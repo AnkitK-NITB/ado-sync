@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "fs";
+import * as path from "path";
 import { normalize, segmentTopics, extractExplicitIds, isChatter, signalTerms } from "../normalize";
 import { matchOne } from "../match";
 import { buildProposal, isDuplicate } from "../propose";
 import { consolidate } from "../consolidate";
-import { canonicalize } from "../vocabulary";
+import { canonicalize, validateVocabulary } from "../vocabulary";
 import { buildPatch, markdownToHtml, isStaleRevRejection, buildWriteActions } from "../write";
 import { recordDecision, summarise, qualifiesForAutomation } from "../telemetry";
 import { applyEdits, wasEdited, onlyAcceptedCorrections, EditConflictError } from "../edit";
@@ -653,6 +655,122 @@ test("the longest matching variant wins", () => {
 test("a spelling difference that changes no token is not reported as a correction", () => {
   const { corrections } = canonicalize("The XPF cluster is ready.", VOCAB);
   assert.deepEqual(corrections, [], "capitalisation alone must not be surfaced as a repair");
+});
+
+// The four tests below each pin a defect that was live and silent. Every one of
+// them weakened matching without failing anything, which is the whole reason
+// they are here.
+
+test("a repair that splits or joins words is not mistaken for a spelling difference", () => {
+  // "start Cosmos" and "StartCosmos" are identical once punctuation is stripped,
+  // so a blob comparison calls this a no-op and drops the repair. To the matcher
+  // they are two terms versus one, which halves the score against a work item
+  // titled "StartCosmos ...". The skip rule has to use the matcher's own
+  // tokenisation, not a looser one.
+  const vocab: VocabularyFile = {
+    terms: [{ canonical: "StartCosmos", variants: ["start Cosmos"] }],
+  };
+  const { normalized, corrections } = canonicalize("The start Cosmos executable fails.", vocab);
+  assert.match(normalized, /StartCosmos/);
+  assert.deepEqual(corrections, [{ heard: "start Cosmos", canonical: "StartCosmos" }]);
+
+  assert.ok(
+    signalTerms(normalized).includes("startcosmos"),
+    "the repair only counts if the matcher now sees the canonical term"
+  );
+});
+
+test("however the transcriber spaced a term, it is still repaired", () => {
+  // Whitespace and hyphenation in a transcript come from the recogniser, not the
+  // speaker, so a variant must not be matched as a rigid literal. The spellings
+  // are derived from the vocabulary rather than written out, so this tests the
+  // behaviour rather than one particular product name.
+  const term = VOCAB.terms[0];
+  const spoken = term.variants[0];
+  const spacings = [
+    spoken,
+    spoken.replace(/\s+/, "  "),
+    spoken.replace(/\s+/, "-"),
+    spoken.replace(/\s+/, "\n"),
+  ];
+
+  for (const heard of spacings) {
+    const { normalized } = canonicalize(`We hit a bug in the ${heard} build.`, VOCAB);
+    assert.ok(
+      normalized.includes(term.canonical),
+      `failed to repair ${JSON.stringify(heard)}`
+    );
+  }
+
+  // But a separator is still required, so a variant can never consume its own
+  // canonical and report a repair that changed nothing.
+  const vocab: VocabularyFile = {
+    terms: [{ canonical: "StartCosmos", variants: ["start Cosmos"] }],
+  };
+  const { normalized, corrections } = canonicalize("StartCosmos is fine.", vocab);
+  assert.equal(normalized, "StartCosmos is fine.");
+  assert.deepEqual(corrections, []);
+});
+
+test("every distinct spelling heard is reported, not just the first", () => {
+  const term = VOCAB.terms[0];
+  const upper = term.variants[0];
+  const lower = upper.toLowerCase();
+  assert.notEqual(upper, lower, "this test needs a variant with letter case in it");
+
+  const { corrections } = canonicalize(`${upper} broke, and later the ${lower} broke again.`, VOCAB);
+  assert.deepEqual(corrections, [
+    { heard: upper, canonical: term.canonical },
+    { heard: lower, canonical: term.canonical },
+  ]);
+});
+
+test("a canonical produced by one repair is never eaten by a later one", () => {
+  // Replacing variant-by-variant runs each rule over text the previous rule
+  // already rewrote, so a canonical can be matched and mangled downstream.
+  // Scanning once means every position is decided against the original text.
+  const vocab: VocabularyFile = {
+    terms: [
+      { canonical: "Hardware Log Collector", variants: ["hardware lock collector"] },
+      { canonical: "HWLC", variants: ["log collector"] },
+    ],
+  };
+  const { normalized } = canonicalize("We fixed the hardware lock collector.", vocab);
+  assert.equal(normalized, "We fixed the Hardware Log Collector.");
+  assert.doesNotMatch(normalized, /Hardware HWLC/, "the first repair was re-matched by the second");
+});
+
+test("a variant claimed by two canonicals is reported rather than resolved silently", () => {
+  const vocab: VocabularyFile = {
+    terms: [
+      { canonical: "HWLC", variants: ["hardware lock collector"] },
+      { canonical: "Hardware Log Collector", variants: ["hardware lock collector"] },
+    ],
+  };
+  const issues = validateVocabulary(vocab);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].kind, "ambiguous-variant");
+  assert.match(issues[0].detail, /claimed by both/);
+
+  // It still has to behave deterministically: first claim wins.
+  const { normalized } = canonicalize("the hardware lock collector", vocab);
+  assert.match(normalized, /HWLC/);
+});
+
+test("the shipped vocabulary has no data errors", () => {
+  // The real file is hand-written from observed transcripts, so it drifts.
+  // data/ holds real meeting content and is not published, so outside this
+  // working tree there is nothing to check.
+  const file = path.join(__dirname, "..", "..", "data", "vocabulary.json");
+  if (!fs.existsSync(file)) return;
+
+  const shipped = JSON.parse(fs.readFileSync(file, "utf8")) as VocabularyFile;
+  const issues = validateVocabulary(shipped);
+  assert.deepEqual(
+    issues.map((i) => `${i.kind}: ${i.detail}`),
+    [],
+    "data/vocabulary.json has issues that silently weaken matching"
+  );
 });
 
 test("repairing a name recovers a match that was otherwise lost", () => {

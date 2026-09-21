@@ -1,4 +1,5 @@
 import { canonicalize, NO_VOCABULARY } from "./vocabulary";
+import { signalTerms } from "./terms";
 import {
   Enrollment,
   SpeakerUpdate,
@@ -6,6 +7,10 @@ import {
   Utterance,
   VocabularyFile,
 } from "./types";
+
+// Re-exported because the matcher and the tests have always imported it from
+// here; it now lives in ./terms so the vocabulary layer can share it.
+export { signalTerms };
 
 /** Conversational filler that carries no status information. */
 const CHATTER = [
@@ -16,22 +21,6 @@ const CHATTER = [
   // Acknowledgement stacked in front of a hand-off, e.g. "Yeah, yeah, please go ahead."
   /^((yeah|yes|no|okay|ok|sure)[,\s]+)+(please\s+)?(go ahead|carry on|continue)\b/i,
 ];
-
-const STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "with",
-  "is", "was", "are", "were", "be", "been", "i", "we", "you", "it", "this",
-  "that", "my", "me", "will", "have", "has", "had", "do", "did", "done",
-  "still", "need", "needs", "more", "most", "time", "yesterday", "today",
-  "around", "through", "from", "can", "cant", "about", "there", "then",
-  "going", "go", "just", "also", "out", "up", "on", "at", "by", "so", "not",
-  // Generic quantifiers and filler. These carry no information, but inverse
-  // document frequency cannot detect that: across 110 short work item titles
-  // "any" appears once, so it scores as maximally distinctive while actually
-  // distinguishing nothing. Rarity in a small corpus is not informativeness,
-  // which is why this class has to be listed rather than inferred.
-  "any", "some", "all", "get", "got", "day", "days", "week", "thing", "things",
-  "lot", "bit", "much", "many", "few", "really", "actually", "basically",
-]);
 
 export function isChatter(text: string): boolean {
   const t = text.trim();
@@ -53,15 +42,6 @@ export function extractExplicitIds(text: string): number[] {
     }
   }
   return [...ids];
-}
-
-export function signalTerms(text: string): string[] {
-  const words = text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
-  return [...new Set(words)];
 }
 
 /**
