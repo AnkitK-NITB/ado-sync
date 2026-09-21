@@ -19,7 +19,6 @@
 </div>
 
 <div id="tiles" class="tiles">Loading…</div>
-<div class="note" id="tilesNote"></div>
 
 <div class="overlay" id="overlay" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -202,13 +201,61 @@ function renderTiles(sources) {
     var done = !!approvedSources[s.id];
     var ready = (s.cards || []).filter(function (c) { return c.status === "proposed"; }).length;
     var state = done ? "Posted" : ready ? ready + " ready" : (s.cards || []).length ? "Needs a decision" : "Nothing to post";
-    return '<a class="tile' + (done ? " done" : "") + '" href="meeting.html?id=' + encodeURIComponent(s.id) + '">' +
+    return '<div class="tileWrap">' +
+      '<a class="tile' + (done ? " done" : "") + '" href="meeting.html?id=' + encodeURIComponent(s.id) + '">' +
       '<div class="tWhen">' + esc(when(s.date)) + "</div>" +
       '<div class="tName">' + esc(s.meeting || s.label) + "</div>" +
       '<div class="tSub">' + esc(s.label) + "</div>" +
       '<div class="tFoot"><span class="pill ' + (done ? "pillDone" : "pillOpen") + '">' + esc(state) + "</span>" +
-      '<span class="tCount">' + s.topicCount + " topic(s)</span></div></a>";
+      '<span class="tCount">' + s.topicCount + " topic(s)</span></div></a>" +
+      '<button class="tDel" title="Discard this card" aria-label="Discard card for ' +
+      esc(s.label) + '" data-del="' + esc(s.id) + '" data-label="' + esc(s.label) + '">\u2715</button>' +
+      "</div>";
   }).join("");
+}
+
+/**
+ * Discarding a card throws away a proposal, not a work item.
+ *
+ * Worth saying plainly in the confirmation, because "delete" next to something
+ * that writes to Azure DevOps reads as far more destructive than it is.
+ */
+function wireTileDeletes() {
+  var host = document.getElementById("tiles");
+  host.querySelectorAll("button[data-del]").forEach(function (btn) {
+    btn.onclick = function (ev) {
+      // The button sits inside the tile's click target.
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      var id = btn.getAttribute("data-del");
+      var label = btn.getAttribute("data-label");
+      if (!window.confirm(
+        "Discard the card for \u201C" + label + "\u201D?\n\n" +
+        "This removes the proposal only. Nothing already posted to Azure DevOps is affected, " +
+        "and the meeting stays subscribed so a new card can be built."
+      )) return;
+
+      btn.disabled = true;
+      btn.textContent = "\u2026";
+      fetch("/api/source/remove", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: id })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) throw new Error(j.error || "could not discard");
+          note("Discarded \u201C" + label + "\u201D.");
+          return loadTiles();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = "\u2715";
+          note("Could not discard: " + err.message, true);
+        });
+    };
+  });
 }
 
 function loadTiles() {
@@ -222,10 +269,7 @@ function loadTiles() {
       return new Date(b.date) - new Date(a.date);
     });
     renderTiles(sources);
-    var done = sources.filter(function (s) { return approvedSources[s.id]; }).length;
-    document.getElementById("tilesNote").textContent =
-      sources.length + " meeting(s) · " + done + " posted · built from " +
-      data.org + "/" + data.project + " at " + new Date(data.generatedAt).toLocaleString() + ".";
+    wireTileDeletes();
   }).catch(function (e) {
     document.getElementById("tiles").innerHTML =
       '<div class="empty">Could not load cards — ' + esc(e.message) + "</div>";

@@ -552,7 +552,9 @@ function render() {
   var when = el("div", "mWhen", new Date(source.date).toLocaleString(undefined,
     { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }));
   var back = el("a", "backLink", "\u2190 All meetings");
-  back.href = "index.html";
+  // index.html is only a redirect stub, so sending "back" there lands on a
+  // near-blank page. Review is where the meeting tiles actually are.
+  back.href = "review.html";
   head.appendChild(back);
   head.appendChild(when);
 
@@ -583,10 +585,12 @@ function render() {
     }
   });
 
+  // Only the part that is both true and worth saying. "Against live work items"
+  // overstated it -- the matching corpus is a snapshot, and it is the card's own
+  // state and revision that are re-read live above. The build timestamp told a
+  // reader nothing except how stale the page might be.
   document.getElementById("foot").textContent =
-    "Cards produced by the engine against live " + DATA.org + "/" + DATA.project +
-    " work items. Approve writes for real, under your own identity, asserting the revision shown. " +
-    "Generated " + new Date(DATA.generatedAt).toLocaleString() + ".";
+    "Approve writes for real, under your own identity, asserting the revision shown.";
 }
 
 fetch("cards.json", { cache: "no-store" })

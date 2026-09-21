@@ -492,8 +492,19 @@ async function removeMeeting(req, res) {
   catch (e) { return send(res, 400, { ok: false, error: "bad request body" }); }
 
   const title = String((payload || {}).title || "").toLowerCase();
-  const meetings = readWatched().filter((m) => m.title.toLowerCase() !== title);
+  const all = readWatched();
+  // Keep the stored spelling: the watcher keys its occurrence memory on the
+  // exact title, so the lowercased form used for comparison would not match.
+  const existing = all.find((m) => m.title.toLowerCase() === title);
+  const meetings = all.filter((m) => m.title.toLowerCase() !== title);
   writeWatched(meetings);
+
+  // Un-watching has to reach the watcher too, or it keeps the occurrence key
+  // and answers "already have that one" if the meeting is ever re-subscribed --
+  // silently producing nothing. Subscription is the permission boundary, so
+  // revoking it must actually make the agent forget.
+  if (watcher && existing) watcher.onUnsubscribe(existing.title);
+
   send(res, 200, { ok: true, meetings });
 }
 
@@ -573,6 +584,59 @@ async function uploadTranscript(req, res) {
         format: parsed.format,
         log: String(stdout).trim(),
       });
+    }
+  );
+}
+
+/**
+ * Deletes one meeting's transcript and rebuilds the cards.
+ *
+ * Nothing here touches Azure DevOps -- a card is a proposal, so discarding it
+ * only throws away the proposal. Anything already approved has been written and
+ * is unaffected.
+ *
+ * The watcher is also made to forget the occurrence. Without that, deleting a
+ * card the watcher built would be permanent: the occurrence key would survive,
+ * the next check would answer "already have that one", and the card could never
+ * come back.
+ */
+async function removeSource(req, res) {
+  let payload;
+  try { payload = await readJson(req); }
+  catch (e) { return send(res, 400, { ok: false, error: "bad request body" }); }
+
+  const id = String((payload || {}).id || "").trim();
+
+  // The id names a file and arrives from the browser, so it is constrained to
+  // the shape ingest actually generates, and the resolved path is checked to be
+  // inside the transcripts directory. Either test alone would be enough; both
+  // are cheap.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+    return send(res, 400, { ok: false, error: "bad transcript id" });
+  }
+
+  const dir = path.join(__dirname, "..", "data", "transcripts");
+  const file = path.resolve(dir, id + ".json");
+  if (path.dirname(file) !== path.resolve(dir)) {
+    return send(res, 400, { ok: false, error: "bad transcript id" });
+  }
+  if (!fs.existsSync(file)) {
+    return send(res, 404, { ok: false, error: "no such transcript" });
+  }
+
+  let meeting = null;
+  try { meeting = JSON.parse(fs.readFileSync(file, "utf8")).meeting || null; } catch (e) { /* deleting anyway */ }
+
+  fs.unlinkSync(file);
+  if (watcher && meeting) watcher.forget(meeting);
+
+  execFile(
+    process.execPath,
+    [path.join(__dirname, "..", "tools", "build-cards.js")],
+    { cwd: path.join(__dirname, "..") },
+    (err, stdout, stderr) => {
+      if (err) return send(res, 500, { ok: false, error: (stderr || err.message).trim() });
+      send(res, 200, { ok: true, id, meeting, log: String(stdout).trim() });
     }
   );
 }
@@ -787,6 +851,9 @@ function handler(req, res) {
   }
   if (req.method === "POST" && route === "/api/meetings/remove") {
     return removeMeeting(req, res).catch((e) => send(res, 500, { ok: false, error: e.message }));
+  }
+  if (req.method === "POST" && route === "/api/source/remove") {
+    return removeSource(req, res).catch((e) => send(res, 500, { ok: false, error: e.message }));
   }
   if (req.method === "POST" && route === "/api/transcript") {
     return uploadTranscript(req, res).catch((e) => send(res, 500, { ok: false, error: e.message }));

@@ -222,6 +222,23 @@ td.k { color: var(--text-secondary); width: 220px; }
   border-radius: 8px; padding: 14px; background: var(--surface);
   transition: transform .08s ease, box-shadow .08s ease;
 }
+/* The discard button overlays the tile, so the tile needs to be the positioning
+   context. The wrapper carries the grid cell; the tile still fills it. */
+.tileWrap { position: relative; display: block; }
+.tileWrap .tile { height: 100%; box-sizing: border-box; }
+.tDel {
+  position: absolute; top: 8px; right: 8px;
+  width: 24px; height: 24px; padding: 0; line-height: 1;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 13px; cursor: pointer; opacity: 0;
+  transition: opacity .08s ease, background .08s ease, color .08s ease;
+}
+/* Revealed on hover or keyboard focus: destructive actions should not sit
+   permanently under the cursor, but must stay reachable without a mouse. */
+.tileWrap:hover .tDel, .tDel:focus { opacity: 1; }
+.tDel:hover { background: var(--danger-bg, rgba(196,43,28,.12)); color: var(--danger, #c42b1c); }
+.tDel:disabled { cursor: default; opacity: 1; }
 .tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
 /* Approved tiles stay exactly where they are -- the order is chronological, and
    a tile that jumps on approval loses the place you were working through. */

@@ -185,6 +185,52 @@ test("unsubscribing forgets the meeting, so resubscribing works", async () => {
   });
 });
 
+test("discarding a card lets the watcher build it again", async () => {
+  // Deleting a card must not be permanent. The occurrence key is what makes a
+  // later check say "already have that one", so forgetting it is the whole
+  // difference between discarding a proposal and losing the meeting.
+  await isolated(async () => {
+    let count = 0;
+    const w = createWatcher({
+      readWatched: () => [{ title: "Daily Standup" }],
+      probe: async () => transcript("2026-09-21"),
+      ingest: async () => { count++; return { id: "x" }; },
+      speaker: "Ankit",
+      dataDir: path.join(process.cwd(), "data"),
+      intervalMs: 999999,
+    });
+
+    await w.tickOnce("test");
+    assert.equal(count, 1);
+
+    await w.tickOnce("test");
+    assert.equal(count, 1, "the same occurrence must not rebuild on its own");
+
+    w.forget("Daily Standup");
+    await w.tickOnce("test");
+    assert.equal(count, 2, "after discarding the card, the next check rebuilds it");
+
+    // Unlike unsubscribing, the subscription itself is untouched.
+    assert.equal(w.status().seen["Daily Standup"], "2026-09-21");
+  });
+});
+
+test("forgetting a meeting that was never seen changes nothing", async () => {
+  await isolated(async () => {
+    const w = createWatcher({
+      readWatched: () => [{ title: "Daily Standup" }],
+      probe: async () => transcript("2026-09-21"),
+      ingest: async () => ({ id: "x" }),
+      speaker: "Ankit",
+      dataDir: path.join(process.cwd(), "data"),
+      intervalMs: 999999,
+    });
+
+    w.forget("Never Watched");
+    assert.deepEqual(w.status().seen, {});
+  });
+});
+
 test("a manual pull stops the watcher duplicating it", async () => {
   await isolated(async () => {
     let count = 0;

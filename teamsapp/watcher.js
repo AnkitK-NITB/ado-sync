@@ -228,6 +228,22 @@ function createWatcher(opts) {
     },
 
     /**
+     * Drop the occurrence memory without touching the subscription.
+     *
+     * Used when a card is deleted: the person still wants the meeting watched,
+     * they just discarded what was built from it. Keeping the key would make
+     * that deletion permanent, because the next check would recognise the
+     * occurrence as already ingested and build nothing.
+     */
+    forget(title) {
+      const state = readState(P);
+      if (!Object.prototype.hasOwnProperty.call(state.seen, title)) return;
+      delete state.seen[title];
+      writeState(P, state);
+      log(P, { event: "forgot", meeting: title });
+    },
+
+    /**
      * Record an occurrence ingested outside the watcher, so a manual pull and
      * the next poll do not produce the same card twice.
      */
