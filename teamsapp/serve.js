@@ -35,9 +35,18 @@ const DEFAULT_SPEAKER = (function () {
   }
 })();
 
-// How often to look for a new transcript of a subscribed meeting. Short enough
-// to be observable in a demo, long enough not to hammer WorkIQ.
-const WATCH_INTERVAL_MS = Number(process.env.ADOSYNC_WATCH_MS || 60000);
+// How often to look for a new transcript of a subscribed meeting. Transcripts
+// land hours after a meeting, so polling faster only hammers WorkIQ. Subscribing
+// and finishing a meeting both trigger a check straight away, so the long
+// interval is a backstop rather than the main path.
+const WATCH_INTERVAL_MS = Number(process.env.ADOSYNC_WATCH_MS || 6 * 60 * 60 * 1000);
+
+// "every 6h" reads better than "every 21600s" in logs and on the heartbeat.
+function everyLabel(ms) {
+  if (ms >= 3600000 && ms % 3600000 === 0) return ms / 3600000 + "h";
+  if (ms >= 60000 && ms % 60000 === 0) return ms / 60000 + "m";
+  return Math.round(ms / 1000) + "s";
+}
 
 // Assigned once the helpers it depends on are defined, below.
 let watcher = null;
@@ -755,6 +764,15 @@ function handler(req, res) {
   if (req.method === "GET" && route === "/api/watcher") {
     return send(res, 200, { ok: true, ...(watcher ? watcher.status() : { running: false }) });
   }
+  // Runs the same poll the interval runs. The interval is hours long, so this is
+  // how a check is forced on demand -- by prove-ambient, and when you don't want
+  // to wait. It builds cards exactly as the timer does; it still never writes.
+  if (req.method === "POST" && route === "/api/watcher/tick") {
+    if (!watcher) return send(res, 200, { ok: false, error: "watcher not running" });
+    return watcher.tickOnce("manual")
+      .then((r) => send(res, 200, { ok: true, produced: (r && r.produced) || [] }))
+      .catch((e) => send(res, 500, { ok: false, error: e.message }));
+  }
   if (req.method === "GET" && route === "/api/meetings/discover") {
     return discoverMeetings(req, res, url).catch((e) => send(res, 500, { ok: false, error: e.message }));
   }
@@ -819,7 +837,7 @@ if (fs.existsSync(CERT)) {
   https.createServer({ pfx: fs.readFileSync(CERT), passphrase }, handler).listen(PORT, () => {
     console.log(`HTTPS  https://localhost:${PORT}/index.html`);
     console.log("Approve performs a real guarded write to Azure DevOps as the signed-in user.");
-    console.log(`Watching subscribed meetings every ${Math.round(WATCH_INTERVAL_MS / 1000)}s.`);
+    console.log(`Watching subscribed meetings every ${everyLabel(WATCH_INTERVAL_MS)}.`);
     watcher.start();
   });
 } else {
@@ -830,7 +848,7 @@ if (fs.existsSync(CERT)) {
     console.log("A browser renders it fine. Teams will NOT -- the tab stays blank.");
     console.log("Run:  powershell -ExecutionPolicy Bypass -File setup-dev-cert.ps1");
     console.log("");
-    console.log(`Watching subscribed meetings every ${Math.round(WATCH_INTERVAL_MS / 1000)}s.`);
+    console.log(`Watching subscribed meetings every ${everyLabel(WATCH_INTERVAL_MS)}.`);
     watcher.start();
   });
 }

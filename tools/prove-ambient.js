@@ -49,6 +49,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log("decisions before subscribe:", nBefore);
 
   console.log("\n>>> the ONLY action taken: subscribing to \"" + MEETING + "\"\n");
+  // The run log survives restarts, so a card built by an earlier run is still in
+  // it. Everything from here is judged against this instant, never the whole log.
+  const runStart = Date.now();
+  const mineSince = (runs, since) =>
+    (runs || []).filter((r) => r.meeting === MEETING && new Date(r.at).getTime() >= since);
   await req("POST", "/api/meetings/toggle", { title: MEETING, watched: true, schedule: "daily" });
 
   // From here nothing is sent but reads.
@@ -56,10 +61,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let i = 0; i < 40; i++) {
     await sleep(1000);
     const s = await req("GET", "/api/watcher");
-    const hit = (s.runs || []).find((r) => r.event === "card-built" && r.meeting === MEETING);
+    const mineNow = mineSince(s.runs, runStart);
+    const hit = mineNow.find((r) => r.event === "card-built");
     process.stdout.write(".");
     if (hit) { built = hit; break; }
-    const failed = (s.runs || []).find((r) => r.error && r.meeting === MEETING);
+    const failed = mineNow.find((r) => r.error);
     if (failed) { console.log("\nprobe/ingest failed:", failed.error); break; }
   }
   console.log("");
@@ -85,16 +91,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     : 0;
   console.log("\n   approvals.log entries:", writes, "(unchanged by the watcher - it never writes)");
 
-  // And it must not rebuild the same occurrence on the next tick.
+  // And it must not rebuild the same occurrence on the next check. The poll
+  // interval is hours, so the check is forced rather than waited for -- it runs
+  // the identical code path the timer runs.
   const ticksBefore = (await req("GET", "/api/watcher")).ticks;
-  await sleep(Math.min(before.intervalMs + 2000, 20000));
+  await req("POST", "/api/watcher/tick");
   const after = await req("GET", "/api/watcher");
 
   // The log survives restarts, so earlier runs are still in it. Only events at
-  // or after the build we just watched belong to this run.
-  const mine = (after.runs || []).filter(
-    (r) => r.meeting === MEETING && new Date(r.at).getTime() >= new Date(built.at).getTime()
-  );
+  // or after this run's start belong to this run.
+  const mine = mineSince(after.runs, runStart);
   const builds = mine.filter((r) => r.event === "card-built").length;
   const dupes = mine.filter((r) => r.event === "already-ingested").length;
   console.log("   ticks:", ticksBefore, "->", after.ticks,

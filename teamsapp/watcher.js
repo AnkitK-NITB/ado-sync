@@ -98,7 +98,7 @@ function createWatcher(opts) {
   const probe = opts.probe;              // (title, speaker) -> pulled transcript
   const ingest = opts.ingest;            // (title, speaker, pulled) -> result
   const speaker = opts.speaker;
-  const intervalMs = opts.intervalMs || 60000;
+  const intervalMs = opts.intervalMs || 6 * 60 * 60 * 1000;
   const P = paths(opts.dataDir);
 
   let timer = null;
